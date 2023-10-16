@@ -1,136 +1,126 @@
 import numpy as np
-from os import path
+from os import path, mkdir
 from PIL import Image
 
 import matplotlib.pyplot as plt
 
 from typing import List, Tuple
 
-def draw_line(resolution: Tuple[int, int], P: np.ndarray):
-    width, height = resolution
+
+Resolution = Tuple[int, int]
+Point = Tuple[float, float]
+
+class Field:
+    def __init__(self, resolution: Resolution):
+        self._resolution = resolution
+
+        self._lines: List[Tuple[Point, Point]] = []
     
-    kw = (width - 0.000001) / 2
-    kh = (height - 0.000001) / 2
-
-    M = np.array([[kw, 0], [0, kh]]) \
-        .dot(np.concatenate((P, np.ones((2, 1))), axis=1)) \
-        .dot(np.array([[1, 0], [0, 1], [1, 1]]))
- 
-    dx = M[0][0] - M[0][1]
-    dy = M[1][0] - M[1][1]
-
-    if np.abs(dx) >= np.abs(dy):
-        [x0, x1] = np.floor(M[0]) + 0.5
-
-        m = dy / dx
-        n = M[1][0] - m * M[0][0]
-
-
-        length = int(np.floor(x1) - np.floor(x0) + 1)
+    def add_line(self, start_point: Point, end_point: Point) -> None:
+        self._lines.append((start_point, end_point))
+    
+    def _draw_line(self, start_point: Point, end_point: Point) -> np.ndarray:
+        width, height = self._resolution
 
         M = np.array([
-            np.linspace(x0, x1, num=length),
-            np.ones(length)
+            start_point,
+            end_point,
         ])
 
-        M = np.array([[1, 0], [m, n]]).dot(M)
+        M[M == 1] = 0.999999
 
-    else:
-        [y0, y1] = M[1]
+        M = np.transpose(M)
 
-        m = dx / dy
-        n = M[0][0] - M[1][0] * m
+        kw = (width) / 2
+        kh = (height) / 2
 
-        length = int(np.floor(y1) - np.floor(y0) + 1)
+        M = np.concatenate(
+            (M, np.ones((1, 2))),
+            axis=0
+        )
 
-        M = np.array([
-            np.linspace(y0, y1, num=length),
-            np.ones(length)
-        ])
-
-        M = np.array([[m, n], [1.0, 0.0]]).dot(M)
+        M = np.array([[kw, 0, kw], [0, kh, kh]]).dot(M)
     
+        dx = M[0][0] - M[0][1]
+        dy = M[1][0] - M[1][1]
 
-    print(M)
-    M = np.floor(M).astype(dtype=np.int32)
+        if np.abs(dx) >= np.abs(dy):
+            [x0, x1] = np.floor(M[0])
 
-    return M
+            m = dy / dx
+            n = M[1][0] - m * M[0][0]
 
-def print_in_field(lines: List[np.ndarray], resolution: Tuple[int, int]):
-    columns, rows = resolution
-    field = np.zeros((rows, columns))
+            length = int(np.abs(x1 - x0) + 1)
 
-    for line in lines:
-        line[1] = rows - 1 - line[1]
-        for x, y in np.transpose(line):
-            field[y][x] = 1
+            M = np.array([
+                np.linspace(x0, x1, num=length),
+                np.ones(length)
+            ])
+
+            M = np.array([[1, 0], [m, n]]).dot(M)
+
+        else:
+            [y0, y1] = np.floor(M[1])
+
+            m = dx / dy
+            n = M[0][0] - M[1][0] * m
+
+            length = int(np.abs(y1 - y0) + 1)
+
+            M = np.array([
+                np.linspace(y0, y1, num=length),
+                np.ones(length)
+            ])
+
+            M = np.array([[m, n], [1.0, 0.0]]).dot(M)
+
+        M = np.floor(M).astype(dtype=np.int32)
+
+        return M
+
+    def render(self) -> np.ndarray:
+        columns, rows = self._resolution
+        field = np.zeros((rows, columns))
+
+        for start_point, end_point in self._lines:
+            for x, y in np.transpose(self._draw_line(start_point, end_point)):
+                field[y][x] = 1
+
+        return np.flip(field, 0)
     
-    return field
-
 def main():
-    for resolution in [
+    resolutions: List[Resolution] = [
         (  20,   20),
+        (  21,   21),
         (  40,   40),
         (  60,   60),
         (  80,   80),
+        ( 300,  300),
+        ( 500,  500),
         ( 720,  400),
         ( 720,  480),
         ( 800,  600),
+        ( 800,  800),
         (1024,  768),
         (1280,  720),
         (1366,  768),
-        ( 300,  300),
-        ( 500,  500),
-        ( 800,  800),
-    ]:
-        line_1 = draw_line(
-            resolution,
-            np.array([
-                [-1.0, +1.0],
-                [+0.0, +1.0]
-        ])
-    )
+    ]
 
-        line_2 = draw_line(
-            resolution,
-            np.array([
-                [-1.0, +1.0],
-                [+0.0, -1.0]
-            ])
-        )
-        line_3 = draw_line(
-            resolution,
-            np.array([
-                [+1.0, +1.0],
-                [-1.0, +1.0]
-            ])
-        )
+    for resolution in resolutions:
+        field = Field(resolution)
 
-        line_4 = draw_line(
-            resolution,
-            np.array([
-                [-1.0, +1.0],
-                [+0.0, +0.0]
-            ])
-        )
+        field.add_line((+0.0, +1.0), (+0.5, +0.0))
+        field.add_line((+0.5, +0.0), (+0.0, -1.0))
+        field.add_line((+0.0, -1.0), (-0.5, +0.0))
+        field.add_line((-0.5, +0.0), (+0.0, +1.0))
 
-        line_5 = draw_line(
-            resolution,
-            np.array([
-                [+0.0, +0.0],
-                [-1.0, +1.0]
-            ])
-        )
+        if not path.exists(path.join('.', 'images')):
+            mkdir(path.join('.', 'images'))
 
-        lines = [
-            line_1,
-            line_2,
-            line_3,
-        ]
+        file_name = path.join('.', 'images', f'{resolution[0]}x{resolution[1]}.png')
+        matrix = field.render()
 
-        field = print_in_field(lines, resolution)
-
-        plt.imsave(path.join('.', 'images', f'{resolution[0]}x{resolution[1]}.png'), field)
+        plt.imsave(file_name, matrix)
 
 
 if __name__ == '__main__':
