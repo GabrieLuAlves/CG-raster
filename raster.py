@@ -9,71 +9,118 @@ from typing import List, Tuple
 
 Resolution = Tuple[int, int]
 Point = Tuple[float, float]
+Line = Tuple[Point, Point]
+Polygon = Tuple[List[Point], List[Tuple[int, int]]]
 
 class Field:
     def __init__(self, resolution: Resolution):
         self._resolution = resolution
 
-        self._lines: List[Tuple[Point, Point]] = []
+        self._lines: List[Line] = []
+        self._polygons: List[Polygon] = []
     
-    def add_line(self, start_point: Point, end_point: Point) -> None:
-        self._lines.append((start_point, end_point))
+    @property
+    def resolution(self):
+        return self._resolution
     
-    def _draw_line(self, start_point: Point, end_point: Point) -> np.ndarray:
+    @resolution.setter
+    def resolution(self, val: Resolution):
+        self._resolution = val
+    
+    def add_line(self, line: Line) -> None:
+        self._lines.append(line)
+    
+    def add_polygon(self, polygon: Polygon):
+        self._polygons.append(polygon)
+    
+    def _map_points(self, points: List[Point]) -> List[Point]:
         width, height = self._resolution
 
-        M = np.array([
-            start_point,
-            end_point,
-        ])
+        kw = width / 2
+        kh = height / 2
 
-        M[M == 1] = 0.999999
+        points = [(0.999, y) if x == 1 else (x, y) for x, y in points]
+        points = [(x, 0.999) if y == 1 else (x, y) for x, y in points]
+        points = [(x + 1, y + 1) for x, y in points]
+        points = [(x * kw, y * kh) for x, y in points]
 
-        M = np.transpose(M)
+        return points
 
-        kw = (width) / 2
-        kh = (height) / 2
+    def _draw_polygon(self, polygon: Polygon):
+        vertices, connections = polygon
+        vertices = self._map_points(vertices)
 
-        M = np.concatenate(
-            (M, np.ones((1, 2))),
-            axis=0
-        )
+        points = []
 
-        M = np.array([[kw, 0, kw], [0, kh, kh]]).dot(M)
-    
-        dx = M[0][0] - M[0][1]
-        dy = M[1][0] - M[1][1]
+        x_min, _ = vertices[0]
+        x_max, _ = vertices[0]
 
-        if np.abs(dx) >= np.abs(dy):
-            [x0, x1] = np.floor(M[0])
+        for i in range(1, len(vertices)):
+            x, _ = vertices[i]
+            if x_min > x:
+                x_min = x
+            elif x_max < x:
+                x_max = x
+        
+        path = list(filter(lambda c: vertices[c[0]][0] != vertices[c[1]][0], connections))
 
-            m = dy / dx
-            n = M[1][0] - m * M[0][0]
+        intercepted_y: List[float] = []
+        for x in np.arange(np.ceil(x_min) + 0.5, np.floor(x_max) - 0.4, step=1):
+            intercepted_y: List[float] = []
+            
+            for i, j in path:
+                x1, y1 = vertices[i]
+                x2, y2 = vertices[j]
 
-            length = int(np.abs(x1 - x0) + 1)
+                m = ((y1 - y2) / (x1 - x2))
+                n = y1 - m * x1
 
-            M = np.array([
-                np.linspace(x0, x1, num=length),
-                np.ones(length)
-            ])
+                xa, xb = (x1, x2) if x1 <= x2 else (x2, x1)
 
-            M = np.array([[1, 0], [m, n]]).dot(M)
+                if x1 < x2 and xa <= x and x < xb:
+                    intercepted_y.append(m * x + n)
+
+                elif x1 > x2 and xa < x and x <= xb:
+                    intercepted_y.append(m * x + n)
+
+            points.append(self._raster_line((x, intercepted_y[1]), (x, intercepted_y[0])))
+        
+        points = np.concatenate(points, axis=0)
+
+        return points
+        
+    def _raster_line(self, start_point: Point, end_point: Point) -> np.ndarray:
+        points: List[List[int]] = []
+
+        if start_point == end_point:
+            return np.floor(np.array([start_point])).astype(dtype='int32')
+
+        x1, y1 = np.floor(start_point) + 0.5
+        x2, y2 = np.floor(end_point) + 0.5
+
+        if np.abs(x1 - x2) >= np.abs(y1 - y2):
+            m = (y1 - y2) / (x1 - x2)
+            n = y1 - m * x1
+
+            x = x1 if x1 <= x2 else x2
+            xf = x2 if x1 <= x2 else x1
+            
+            while x <= xf:
+                points.append([x, m * x + n])
+                x = x + 1
 
         else:
-            [y0, y1] = np.floor(M[1])
+            m = (x1 - x2) / (y1 - y2)
+            n = x1 - m * y1
 
-            m = dx / dy
-            n = M[0][0] - M[1][0] * m
+            y = y1 if y1 <= y2 else y2
+            yf = y2 if y1 <= y2 else y1
+            
+            while y <= yf:
+                points.append([m * y + n, y])
+                y = y + 1
 
-            length = int(np.abs(y1 - y0) + 1)
-
-            M = np.array([
-                np.linspace(y0, y1, num=length),
-                np.ones(length)
-            ])
-
-            M = np.array([[m, n], [1.0, 0.0]]).dot(M)
-
+        M = np.array(points)
         M = np.floor(M).astype(dtype=np.int32)
 
         return M
@@ -82,19 +129,25 @@ class Field:
         columns, rows = self._resolution
         field = np.zeros((rows, columns))
 
+        for polygon in self._polygons:
+            points = self._draw_polygon(polygon)
+            for x, y in points:
+                field[y][x] = 1
+
         for start_point, end_point in self._lines:
-            for x, y in np.transpose(self._draw_line(start_point, end_point)):
+            [start_point, end_point] = self._map_points([
+                start_point, end_point
+            ])
+
+            line_points = self._raster_line(start_point, end_point)
+            for x, y in line_points:
                 field[y][x] = 1
 
         return np.flip(field, 0)
     
 def main():
     resolutions: List[Resolution] = [
-        (  20,   20),
-        (  21,   21),
-        (  40,   40),
-        (  60,   60),
-        (  80,   80),
+        ( 100,  100),
         ( 300,  300),
         ( 500,  500),
         ( 720,  400),
@@ -109,18 +162,54 @@ def main():
     for resolution in resolutions:
         field = Field(resolution)
 
-        field.add_line((+0.0, +1.0), (+0.5, +0.0))
-        field.add_line((+0.5, +0.0), (+0.0, -1.0))
-        field.add_line((+0.0, -1.0), (-0.5, +0.0))
-        field.add_line((-0.5, +0.0), (+0.0, +1.0))
+        field.add_line(((+0.00, +1.00), (-0.00, -1.00)))
+
+        #field.add_line(((+0.26, +0.97), (-0.26, -0.97)))
+        field.add_line(((+0.87, +0.50), (-0.87, -0.50)))
+        field.add_line(((+0.71, +0.71), (-0.71, -0.71)))
+        field.add_line(((+0.50, +0.87), (-0.50, -0.87)))
+        #field.add_line(((+0.97, +0.26), (-0.97, -0.26)))
+
+        #field.add_line(((-0.26, +0.97), (+0.26, -0.97)))
+        field.add_line(((-0.87, +0.50), (+0.87, -0.50)))
+        field.add_line(((-0.71, +0.71), (+0.71, -0.71)))
+        field.add_line(((-0.50, +0.87), (+0.50, -0.87)))
+        #field.add_line(((-0.97, +0.26), (+0.97, -0.26)))
+
+        field.add_line(((-1.00, +0.00), (+1.00, -0.00)))
+
+        field.add_line(((0.95, +0.95), (+0.95, 0.95)))
 
         if not path.exists(path.join('.', 'images')):
             mkdir(path.join('.', 'images'))
 
-        file_name = path.join('.', 'images', f'{resolution[0]}x{resolution[1]}.png')
+        file_name = path.join('.', 'images', f'lines-{resolution[0]}x{resolution[1]}.png')
         matrix = field.render()
 
         plt.imsave(file_name, matrix)
+    
+    for resolution in resolutions:
+        field = Field(resolution)
+    
+        field.add_polygon((
+            [
+                (+0.00, +0.75),
+                (+0.50, +0.00),
+                (+0.00, -0.75),
+                (-0.50, +0.00),
+            ], [
+                (0, 1),
+                (1, 2),
+                (2, 3),
+                (3, 0),
+            ]
+        ))
+
+        file_name = path.join('.', 'images', f'quadrilateral-{resolution[0]}x{resolution[1]}.png')
+        matrix = field.render()
+
+        plt.imsave(file_name, matrix)
+    
 
 
 if __name__ == '__main__':
