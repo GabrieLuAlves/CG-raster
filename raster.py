@@ -95,13 +95,12 @@ class Field:
                 points.append(np.array([[x, intercepted_y[0]]]).astype('int32'))
             else:
                 raise Exception(f'Unexpeced error. Number of intercepted lines in polygon rasterization was {len(intercepted_y)}')        
+        
         points = np.concatenate(points, axis=0)
 
         return points
         
     def _raster_line(self, start_point: Point, end_point: Point) -> np.ndarray:
-        points: List[List[int]] = []
-
         if start_point == end_point:
             return np.floor(np.array([start_point])).astype(dtype='int32')
 
@@ -115,9 +114,14 @@ class Field:
             x = x1 if x1 <= x2 else x2
             xf = x2 if x1 <= x2 else x1
             
-            while x <= xf:
-                points.append([x, m * x + n])
-                x = x + 1
+            length = int(xf - x + 1)
+            M = np.array([
+                [1, 0],
+                [m, n]
+            ]).dot(np.array([
+                np.linspace(x, xf, num=length),
+                np.ones(length)
+            ]))
 
         else:
             m = (x1 - x2) / (y1 - y2)
@@ -126,14 +130,17 @@ class Field:
             y = y1 if y1 <= y2 else y2
             yf = y2 if y1 <= y2 else y1
             
-            while y <= yf:
-                points.append([m * y + n, y])
-                y = y + 1
+            length = int(yf - y + 1)
+            M = np.array([
+                [m, n],
+                [1, 0]
+            ]).dot(np.array([
+                np.linspace(y, yf, num=length),
+                np.ones(length)
+            ]))
 
-        M = np.array(points)
         M = np.floor(M).astype(dtype=np.int32)
-
-        return M
+        return np.transpose(M)
 
     def render(self) -> np.ndarray:
         columns, rows = self._resolution
@@ -201,7 +208,7 @@ def main():
         (1280,  720),
         (1366,  768),
     ]
-    '''
+
     for resolution in resolutions:
         field = Field(resolution)
 
@@ -223,7 +230,7 @@ def main():
         matrix = field.render()
 
         plt.imsave(file_name, matrix)
-    '''
+
     for resolution in resolutions:
         field = Field(resolution)
 
@@ -277,6 +284,12 @@ def main():
             width=0.4,
             height=0.4,
         ))
+
+        field.add_line(((-1, -0.333), (1, -0.333)))
+        field.add_line(((-1, +0.333), (1, +0.333)))
+
+        field.add_line(((-0.333, -1), (-0.333, +1)))
+        field.add_line(((+0.333, -1), (+0.333, +1)))
     
         file_name = path.join('.', 'images', f'quadrilateral-{resolution[0]}x{resolution[1]}.png')
         matrix = field.render()
