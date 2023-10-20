@@ -41,31 +41,37 @@ class Field:
 
         points = [(0.999, y) if x == 1 else (x, y) for x, y in points]
         points = [(x, 0.999) if y == 1 else (x, y) for x, y in points]
-        points = [(x + 1, y + 1) for x, y in points]
+        points = [(x + 1.0, y + 1.0) for x, y in points]
         points = [(x * kw, y * kh) for x, y in points]
 
         return points
 
     def _draw_polygon(self, polygon: Polygon):
         vertices, connections = polygon
+
         vertices = self._map_points(vertices)
 
-        points = []
+        for i in range(len(vertices)):
+            x, y = vertices[i]
+            vertices[i] = np.floor(x) + 0.5, np.floor(y) + 0.5
 
-        x_min, _ = vertices[0]
-        x_max, _ = vertices[0]
+        
+        x_left, _ = vertices[0]
+        x_right, _ = vertices[0]
 
         for i in range(1, len(vertices)):
             x, _ = vertices[i]
-            if x_min > x:
-                x_min = x
-            elif x_max < x:
-                x_max = x
+            if x_left > x:
+                x_left = x
+            elif x_right < x:
+                x_right = x
+    
+        points = []
         
         path = list(filter(lambda c: vertices[c[0]][0] != vertices[c[1]][0], connections))
 
-        intercepted_y: List[float] = []
-        for x in np.arange(np.ceil(x_min) + 0.5, np.floor(x_max) - 0.4, step=1):
+        length = int(x_right - x_left + 1)
+        for x in np.linspace(x_left, x_right, num=length):
             intercepted_y: List[float] = []
             
             for i, j in path:
@@ -83,8 +89,12 @@ class Field:
                 elif x1 > x2 and xa < x and x <= xb:
                     intercepted_y.append(m * x + n)
 
-            points.append(self._raster_line((x, intercepted_y[1]), (x, intercepted_y[0])))
-        
+            if len(intercepted_y) == 2:
+                points.append(self._raster_line((x, intercepted_y[1]), (x, intercepted_y[0])))
+            elif len(intercepted_y) == 1:
+                points.append(np.array([[x, intercepted_y[0]]]).astype('int32'))
+            else:
+                raise Exception(f'Unexpeced error. Number of intercepted lines in polygon rasterization was {len(intercepted_y)}')        
         points = np.concatenate(points, axis=0)
 
         return points
@@ -144,9 +154,40 @@ class Field:
                 field[y][x] = 1
 
         return np.flip(field, 0)
-    
+
+def new_polygon(vertices: List[Point]) -> Polygon:
+    connections: List[Tuple[int, int]] = [(x, x + 1) for x in range(len(vertices) - 1)]
+    connections.append((len(vertices) - 1, 0))
+
+    return (vertices, connections)
+
+def new_rectangle(center: Point, width: float, height: float) -> Polygon:
+    x, y = center
+
+    width, height = width / 2, height / 2
+
+    return new_polygon([
+        (x - width, y + height),
+        (x + width, y + height),
+        (x + width, y - height),
+        (x - width, y - height),
+    ])
+
+def new_diamond(center: Point, width: float, height: float) -> Polygon:
+    x, y = center
+
+    width, height = width / 2, height / 2
+
+    return new_polygon([
+        (x - width, y),
+        (x, y + height),
+        (x + width, y),
+        (x, y - height),
+    ])
+
 def main():
     resolutions: List[Resolution] = [
+        (  20,   20),
         ( 100,  100),
         ( 300,  300),
         ( 500,  500),
@@ -154,31 +195,26 @@ def main():
         ( 720,  480),
         ( 800,  600),
         ( 800,  800),
+        (1000, 1000),
         (1024,  768),
+        (1024, 1024),
         (1280,  720),
         (1366,  768),
     ]
-
+    '''
     for resolution in resolutions:
         field = Field(resolution)
 
+        field.add_line(((+1.00, +0.00), (-1.00, -0.00)))
+        field.add_line(((+0.95, +0.31), (-0.95, -0.31)))
+        field.add_line(((+0.81, +0.59), (-0.81, -0.59)))
+        field.add_line(((+0.59, +0.81), (-0.59, -0.81)))
+        field.add_line(((+0.31, +0.95), (-0.31, -0.95)))
         field.add_line(((+0.00, +1.00), (-0.00, -1.00)))
-
-        #field.add_line(((+0.26, +0.97), (-0.26, -0.97)))
-        field.add_line(((+0.87, +0.50), (-0.87, -0.50)))
-        field.add_line(((+0.71, +0.71), (-0.71, -0.71)))
-        field.add_line(((+0.50, +0.87), (-0.50, -0.87)))
-        #field.add_line(((+0.97, +0.26), (-0.97, -0.26)))
-
-        #field.add_line(((-0.26, +0.97), (+0.26, -0.97)))
-        field.add_line(((-0.87, +0.50), (+0.87, -0.50)))
-        field.add_line(((-0.71, +0.71), (+0.71, -0.71)))
-        field.add_line(((-0.50, +0.87), (+0.50, -0.87)))
-        #field.add_line(((-0.97, +0.26), (+0.97, -0.26)))
-
-        field.add_line(((-1.00, +0.00), (+1.00, -0.00)))
-
-        field.add_line(((0.95, +0.95), (+0.95, 0.95)))
+        field.add_line(((-0.95, +0.31), (+0.95, -0.31)))
+        field.add_line(((-0.81, +0.59), (+0.81, -0.59)))
+        field.add_line(((-0.59, +0.81), (+0.59, -0.81)))
+        field.add_line(((-0.31, +0.95), (+0.31, -0.95)))
 
         if not path.exists(path.join('.', 'images')):
             mkdir(path.join('.', 'images'))
@@ -187,24 +223,61 @@ def main():
         matrix = field.render()
 
         plt.imsave(file_name, matrix)
-    
+    '''
     for resolution in resolutions:
         field = Field(resolution)
-    
-        field.add_polygon((
-            [
-                (+0.00, +0.75),
-                (+0.50, +0.00),
-                (+0.00, -0.75),
-                (-0.50, +0.00),
-            ], [
-                (0, 1),
-                (1, 2),
-                (2, 3),
-                (3, 0),
-            ]
+
+        ## UPPER 3
+        field.add_polygon(new_diamond(
+            center=(-0.666, +0.666),
+            width=0.4,
+            height=0.4,
         ))
 
+        field.add_polygon(new_diamond(
+            center=(+0.000, +0.666),
+            width=0.4,
+            height=0.4,
+        ))
+        
+        field.add_polygon(new_diamond(
+            center=(+0.666, +0.666),
+            width=0.4,
+            height=0.4,
+        ))
+
+        ## LOWER 3
+        field.add_polygon(new_diamond(
+            center=(-0.666, -0.666),
+            width=0.4,
+            height=0.4,
+        ))
+
+        field.add_polygon(new_diamond(
+            center=(+0.000, -0.666),
+            width=0.4,
+            height=0.4,
+        ))
+
+        field.add_polygon(new_diamond(
+            center=(+0.666, -0.666),
+            width=0.4,
+            height=0.4,
+        ))
+
+        ## CENTER 2
+        field.add_polygon(new_diamond(
+            center=(-0.333, +0.000),
+            width=0.4,
+            height=0.4,
+        ))
+        
+        field.add_polygon(new_diamond(
+            center=(+0.333, +0.000),
+            width=0.4,
+            height=0.4,
+        ))
+    
         file_name = path.join('.', 'images', f'quadrilateral-{resolution[0]}x{resolution[1]}.png')
         matrix = field.render()
 
