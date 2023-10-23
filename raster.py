@@ -11,6 +11,87 @@ Resolution = Tuple[int, int]
 Point = Tuple[float, float]
 Line = Tuple[Point, Point]
 Polygon = Tuple[List[Point], List[Tuple[int, int]]]
+HermineCurve = Tuple[Point, Point, Tuple[float, float], Tuple[float, float]]
+
+
+class PointModifier:
+    def __init__(self, points: List[Point]):
+        self._points = points
+        
+        self._scale_matrix = np.array([
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1]
+        ])
+
+        self._rotation_matrix = np.array([
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1]
+        ])
+
+        self._move_matrix = np.array([
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1]
+        ])
+
+    @property
+    def points(self):
+        return self._points
+
+    @points.setter
+    def points(self, points: List[Point]):
+        self._points = points
+
+    def scale(self, x_factor: float, y_factor: float):
+        self._rotation_matrix = np.array([
+            [x_factor, 0, 0],
+            [0, y_factor, 0],
+            [0, 0, 1]
+        ])
+
+        return self
+    
+    def rotate(self, angle_rads: float):
+        self._rotation_matrix = np.array([
+            [np.cos(angle_rads), -np.sin(angle_rads), 0],
+            [np.sin(angle_rads), np.cos(angle_rads), 0],
+            [0, 0, 1]
+        ])
+
+        return self
+    
+    def move(self, x_dist, y_dist):
+        self._move_matrix = np.array([
+            [1, 0, x_dist],
+            [0, 1, y_dist],
+            [0, 0, 1]
+        ])
+
+        return self
+    
+    def _get_points(self) -> List[Point]:
+        return [
+            (x, y) for x, y in np.transpose(
+                self._move_matrix \
+                .dot(self._scale_matrix) \
+                .dot(self._rotation_matrix) \
+                .dot(np.transpose(
+                    np.append(
+                        np.array(self._points),
+                        np.ones((len(self._points), 1)),
+                        axis=1
+                    )
+                ))
+            )[:, :2]
+        ]
+
+    def get_points(self) -> List[Point]:
+        return self._get_points()
+
+    def __call__(self) -> List[Point]:
+        return self._get_points()
 
 class Field:
     def __init__(self, resolution: Resolution):
@@ -18,6 +99,7 @@ class Field:
 
         self._lines: List[Line] = []
         self._polygons: List[Polygon] = []
+        self._curves: List[HermineCurve] = []
     
     @property
     def resolution(self):
@@ -33,18 +115,22 @@ class Field:
     def add_polygon(self, polygon: Polygon):
         self._polygons.append(polygon)
     
+    def add_hermine_curve(self, curve: HermineCurve):
+        self._curves.append(curve)
+    
     def _map_points(self, points: List[Point]) -> List[Point]:
         width, height = self._resolution
 
         kw = width / 2
         kh = height / 2
 
-        points = [(0.999, y) if x == 1 else (x, y) for x, y in points]
-        points = [(x, 0.999) if y == 1 else (x, y) for x, y in points]
-        points = [(x + 1.0, y + 1.0) for x, y in points]
-        points = [(x * kw, y * kh) for x, y in points]
+        M = np.array(points)
+        M[M == 1] = 0.999999
+        M = M + 1
+        M[:, 0] *= kw
+        M[:, 1] *= kh  
 
-        return points
+        return [(x, y) for x, y in M]
 
     def _draw_polygon(self, polygon: Polygon):
         vertices, connections = polygon
@@ -54,7 +140,6 @@ class Field:
         for i in range(len(vertices)):
             x, y = vertices[i]
             vertices[i] = np.floor(x) + 0.5, np.floor(y) + 0.5
-
         
         x_left, _ = vertices[0]
         x_right, _ = vertices[0]
@@ -99,6 +184,48 @@ class Field:
         points = np.concatenate(points, axis=0)
 
         return points
+
+    def _raster_hermine_curve(self, curve: HermineCurve, n_points: int) -> np.ndarray:
+        p1, p2, t1, t2 = curve
+
+        points_t: List[float] = [t / (n_points - 1) for t in range(n_points)]
+
+        t: List[List[float]] = [[t * t * t, t * t, t, 1] for t in points_t]
+
+        M = np.array(t) \
+        .dot(np.array([
+            [+2, -2, +1, +1],
+            [-3, +3, -2, -1],
+            [+0, +0, +1, +0],
+            [+1, +0, +0, +0],
+        ])) \
+        .dot(np.array([
+            p1,
+            p2,
+            t1,
+            t2,
+        ]))
+        width, height = self._resolution
+
+        kw = width / 2.0
+        kh = height / 2.0
+
+        M[M >= 1] = 0.999
+        M = M + 1
+        M[:, 0] = M[:, 0] * kw
+        M[:, 1] = M[:, 1] * kh
+
+        M = np.floor(M) + 0.5
+
+        x1, y1 = M[0, :]
+
+        points: List[np.ndarray] = []
+        for x2, y2 in M[1:, :]:
+            points.append(self._raster_line((x1, y1), (x2, y2)))
+            x1, y1 = x2, y2
+        
+        return np.concatenate(points, axis=0)
+
         
     def _raster_line(self, start_point: Point, end_point: Point) -> np.ndarray:
         if start_point == end_point:
@@ -145,20 +272,24 @@ class Field:
     def render(self) -> np.ndarray:
         columns, rows = self._resolution
         field = np.zeros((rows, columns))
+        points: List[np.ndarray] = []
+
+        for curve in self._curves:
+            points.append(self._raster_hermine_curve(curve, 10))
 
         for polygon in self._polygons:
-            points = self._draw_polygon(polygon)
-            for x, y in points:
-                field[y][x] = 1
+            points.append(self._draw_polygon(polygon))
 
         for start_point, end_point in self._lines:
             [start_point, end_point] = self._map_points([
                 start_point, end_point
             ])
 
-            line_points = self._raster_line(start_point, end_point)
-            for x, y in line_points:
-                field[y][x] = 1
+            points.append(self._raster_line(start_point, end_point))
+        
+        M = np.concatenate(points, axis=0)
+        for x, y in M:
+            field[y, x] = 1
 
         return np.flip(field, 0)
 
@@ -192,9 +323,36 @@ def new_diamond(center: Point, width: float, height: float) -> Polygon:
         (x, y - height),
     ])
 
+def new_triangle(center: Point, sides_sizes: Tuple[float, ...]) -> Polygon:
+    x_center, y_center = center
+
+    if len(sides_sizes) == 1:
+        half_base = sides_sizes[0] / 2.0
+        half_height = sides_sizes[0] * 0.4330
+
+        return new_polygon([
+            (x_center, y_center + half_height),
+            (x_center + half_base, y_center - half_height),
+            (x_center - half_base, y_center - half_height)]
+        )
+    
+    elif len(sides_sizes) == 2:
+        half_base = min(sides_sizes) / 2.0
+        half_height = np.sqrt(np.square(max(sides_sizes)) - np.square(half_base))
+
+        return new_polygon([
+            (x_center, y_center + half_height),
+            (x_center + half_base, y_center - half_height),
+            (x_center - half_base, y_center + half_height)]
+        )
+    
+    elif len(sides_sizes) == 3:
+        raise NotImplementedError()
+
+    else:
+        raise Exception('The sizes array length must be at least 1 and at maximum 3')
 def main():
     resolutions: List[Resolution] = [
-        (  20,   20),
         ( 100,  100),
         ( 300,  300),
         ( 500,  500),
@@ -203,6 +361,7 @@ def main():
         ( 800,  600),
         ( 800,  800),
         (1000, 1000),
+        (1001, 1001),
         (1024,  768),
         (1024, 1024),
         (1280,  720),
@@ -212,16 +371,61 @@ def main():
     for resolution in resolutions:
         field = Field(resolution)
 
-        field.add_line(((+1.00, +0.00), (-1.00, -0.00)))
-        field.add_line(((+0.95, +0.31), (-0.95, -0.31)))
-        field.add_line(((+0.81, +0.59), (-0.81, -0.59)))
-        field.add_line(((+0.59, +0.81), (-0.59, -0.81)))
-        field.add_line(((+0.31, +0.95), (-0.31, -0.95)))
-        field.add_line(((+0.00, +1.00), (-0.00, -1.00)))
-        field.add_line(((-0.95, +0.31), (+0.95, -0.31)))
-        field.add_line(((-0.81, +0.59), (+0.81, -0.59)))
-        field.add_line(((-0.59, +0.81), (+0.59, -0.81)))
-        field.add_line(((-0.31, +0.95), (+0.31, -0.95)))
+        point_modifier = PointModifier([
+            (-1.0, +0.0),
+            (+1.0, +0.0)
+        ])
+
+        angles = [
+            -np.pi / 12,    -np.pi / 6,         -np.pi / 4,
+            -np.pi / 3,     -np.pi / 12 * 5,    0,
+            +np.pi / 12,    +np.pi / 6,         +np.pi / 4,
+            +np.pi / 3,     +np.pi / 12 * 5,    +np.pi / 2
+        ]
+
+        radii = [1.0, 0.75, 0.5, 0.25]
+        
+        for angle in angles:
+            [p1, p2] = point_modifier.rotate(angle).get_points()
+            field.add_line((p1, p2))
+        
+        for radius in radii:
+            field.add_hermine_curve((
+                (+0.0, +radius),
+                (+radius, +0.0),
+                (+1.675 * radius, +0.0),
+                (+0.0, -1.675 * radius),
+            ))
+            field.add_hermine_curve((
+                (+radius, +0.0),
+                (+0.0, -radius),
+                (+0.0, -1.675 * radius),
+                (-1.675 * radius, +0.0),
+            ))
+            field.add_hermine_curve((
+                (+0.0, -radius),
+                (-radius, +0.0),
+                (-1.675 * radius, +0.0),
+                (+0.0, +1.675 * radius),
+            ))
+            field.add_hermine_curve((
+                (-radius, +0.0),
+                (+0.0, +radius),
+                (+0.0, +1.675 * radius),
+                (+1.675 * radius, +0.0),
+            ))
+        
+        for _ in range(4):
+            x, y = tuple(np.random.random((2)) - 0.5)
+            field.add_hermine_curve(((x, y), (x, y), (-0.15, +0.2), (-0.15, -0.2)))
+
+        for _ in range(4):
+            x, y = tuple(np.random.random((2)) - 0.5)
+            field.add_polygon(new_triangle((x, y), (0.05,)))
+
+        for _ in range(4):
+            x, y = tuple(np.random.random((2)) - 0.5)
+            field.add_polygon(new_rectangle((x, y), 0.0443, 0.0443))
 
         if not path.exists(path.join('.', 'images')):
             mkdir(path.join('.', 'images'))
