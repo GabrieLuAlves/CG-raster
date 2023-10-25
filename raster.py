@@ -156,23 +156,30 @@ class Field:
         path = list(filter(lambda c: vertices[c[0]][0] != vertices[c[1]][0], connections))
 
         length = int(x_right - x_left + 1)
+
         for x in np.linspace(x_left, x_right, num=length):
             intercepted_y: List[float] = []
             
+            _, last_edges_final_vertex = path[-1]
             for i, j in path:
                 x1, y1 = vertices[i]
                 x2, y2 = vertices[j]
 
-                m = ((y1 - y2) / (x1 - x2))
-                n = y1 - m * x1
+                m = (y1 - y2) / (x1 - x2)
 
-                xa, xb = (x1, x2) if x1 <= x2 else (x2, x1)
+                # y = m * x + n
+                y = m * x + y1 - m * x1
 
-                if x1 < x2 and xa <= x and x < xb:
-                    intercepted_y.append(m * x + n)
-
-                elif x1 > x2 and xa < x and x <= xb:
-                    intercepted_y.append(m * x + n)
+                if last_edges_final_vertex == i:
+                    if (x1 < x2 and x1 < x and x <= x2) or \
+                        (x1 > x2 and x2 <= x and x < x1):
+                        intercepted_y.append(y)
+                else:
+                    if (x1 < x2 and x1 <= x and x <= x2) or \
+                        (x1 > x2 and x2 <= x and x <= x1):
+                        intercepted_y.append(y)
+                
+                last_edges_final_vertex = j
 
             if len(intercepted_y) == 2:
                 points.append(self._raster_line((x, intercepted_y[1]), (x, intercepted_y[0])))
@@ -180,7 +187,7 @@ class Field:
                 points.append(np.array([[x, intercepted_y[0]]]).astype('int32'))
             else:
                 raise Exception(f'Unexpeced error. Number of intercepted lines in polygon rasterization was {len(intercepted_y)}')        
-        
+
         points = np.concatenate(points, axis=0)
 
         return points
@@ -294,34 +301,10 @@ class Field:
         return np.flip(field, 0)
 
 def new_polygon(vertices: List[Point]) -> Polygon:
-    connections: List[Tuple[int, int]] = [(x, x + 1) for x in range(len(vertices) - 1)]
-    connections.append((len(vertices) - 1, 0))
+    edges: List[Tuple[int, int]] = [(x, x + 1) for x in range(len(vertices) - 1)]
+    edges.append((len(vertices) - 1, 0))
 
-    return (vertices, connections)
-
-def new_rectangle(center: Point, width: float, height: float) -> Polygon:
-    x, y = center
-
-    width, height = width / 2, height / 2
-
-    return new_polygon([
-        (x - width, y + height),
-        (x + width, y + height),
-        (x + width, y - height),
-        (x - width, y - height),
-    ])
-
-def new_diamond(center: Point, width: float, height: float) -> Polygon:
-    x, y = center
-
-    width, height = width / 2, height / 2
-
-    return new_polygon([
-        (x - width, y),
-        (x, y + height),
-        (x + width, y),
-        (x, y - height),
-    ])
+    return (vertices, edges)
 
 def new_triangle(center: Point, sides_sizes: Tuple[float, ...]) -> Polygon:
     x_center, y_center = center
@@ -351,6 +334,46 @@ def new_triangle(center: Point, sides_sizes: Tuple[float, ...]) -> Polygon:
 
     else:
         raise Exception('The sizes array length must be at least 1 and at maximum 3')
+
+def new_rectangle(center: Point, width: float, height: float) -> Polygon:
+    x, y = center
+
+    width, height = width / 2, height / 2
+
+    return new_polygon([
+        (x - width, y + height),
+        (x + width, y + height),
+        (x + width, y - height),
+        (x - width, y - height),
+    ])
+
+def new_diamond(center: Point, width: float, height: float) -> Polygon:
+    x, y = center
+
+    width, height = width / 2, height / 2
+
+    return new_polygon([
+        (x - width, y),
+        (x, y + height),
+        (x + width, y),
+        (x, y - height),
+    ])
+
+def new_hexagon(center: Point, side: float) -> Polygon:
+    half_height = side * 0.866
+    half_side = side / 2
+
+    x, y = center
+
+    return new_polygon([
+        (x - half_side, y + half_height),
+        (x + half_side, y + half_height),
+        (x + side, y),
+        (x + half_side, y - half_height),
+        (x - half_side, y - half_height),
+        (x - side, y),
+    ])
+
 def main():
     resolutions: List[Resolution] = [
         ( 100,  100),
@@ -415,17 +438,39 @@ def main():
                 (+1.675 * radius, +0.0),
             ))
         
+        random_numbers = np.random.random((16, 2))
+        random_numbers[:, 0] = 0.75 * random_numbers[:, 0] + 0.1
+        random_numbers[:, 1] = 2 * np.pi * random_numbers[:, 1]
+
+        aux_column = np.copy(random_numbers[:, 0])
+
+        random_numbers[:, 0] = aux_column * np.cos(random_numbers[:, 1])
+        random_numbers[:, 1] = aux_column * np.sin(random_numbers[:, 1])
+
+        i = 0
         for _ in range(4):
-            x, y = tuple(np.random.random((2)) - 0.5)
+            x, y = random_numbers[i]
+            i += 1
+
             field.add_hermine_curve(((x, y), (x, y), (-0.15, +0.2), (-0.15, -0.2)))
 
         for _ in range(4):
-            x, y = tuple(np.random.random((2)) - 0.5)
-            field.add_polygon(new_triangle((x, y), (0.05,)))
+            x, y = random_numbers[i]
+            i += 1
+
+            field.add_polygon(new_triangle((x, y), (0.0577,)))
 
         for _ in range(4):
-            x, y = tuple(np.random.random((2)) - 0.5)
-            field.add_polygon(new_rectangle((x, y), 0.0443, 0.0443))
+            x, y = random_numbers[i]
+            i += 1
+
+            field.add_polygon(new_rectangle((x, y), 0.05, 0.05))
+        
+        for _ in range(4):
+            x, y = random_numbers[i]
+            i += 1
+
+            field.add_polygon(new_hexagon((x, y), 0.0289))
 
         if not path.exists(path.join('.', 'images')):
             mkdir(path.join('.', 'images'))
