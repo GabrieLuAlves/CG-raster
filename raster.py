@@ -52,7 +52,7 @@ class PointModifier:
         ])
 
         return self
-    
+
     def rotate(self, angle_rads: float):
         self._rotation_matrix = np.array([
             [np.cos(angle_rads), -np.sin(angle_rads), 0],
@@ -61,7 +61,7 @@ class PointModifier:
         ])
 
         return self
-    
+
     def move(self, x_dist, y_dist):
         self._move_matrix = np.array([
             [1, 0, x_dist],
@@ -70,7 +70,7 @@ class PointModifier:
         ])
 
         return self
-    
+
     def _get_points(self) -> List[Point]:
         return [
             (x, y) for x, y in np.transpose(
@@ -238,8 +238,8 @@ class Field:
         if start_point == end_point:
             return np.floor(np.array([start_point])).astype(dtype='int32')
 
-        x1, y1 = np.floor(start_point) + 0.5
-        x2, y2 = np.floor(end_point) + 0.5
+        x1, y1 = start_point
+        x2, y2 = end_point
 
         if np.abs(x1 - x2) >= np.abs(y1 - y2):
             m = (y1 - y2) / (x1 - x2)
@@ -248,14 +248,16 @@ class Field:
             x = x1 if x1 <= x2 else x2
             xf = x2 if x1 <= x2 else x1
             
-            length = int(xf - x + 1)
+            x_values = np.concatenate([
+                np.array([x]),
+                np.arange(np.ceil(x) + 0.5, np.floor(xf) - 0.4, step=1),
+                np.array([xf])
+            ], axis=0)
+
             M = np.array([
-                [1, 0],
-                [m, n]
-            ]).dot(np.array([
-                np.linspace(x, xf, num=length),
-                np.ones(length)
-            ]))
+                x_values,
+                x_values * m + n
+            ])
 
         else:
             m = (x1 - x2) / (y1 - y2)
@@ -264,17 +266,18 @@ class Field:
             y = y1 if y1 <= y2 else y2
             yf = y2 if y1 <= y2 else y1
             
-            length = int(yf - y + 1)
+            y_values = np.concatenate([
+                np.array([y]),
+                np.arange(np.ceil(y) + 0.5, np.floor(yf) - 0.4, step=1),
+                np.array([yf])
+            ], axis=0)
+            
             M = np.array([
-                [m, n],
-                [1, 0]
-            ]).dot(np.array([
-                np.linspace(y, yf, num=length),
-                np.ones(length)
-            ]))
+                y_values * m + n,
+                y_values,
+            ])
 
-        M = np.floor(M).astype(dtype=np.int32)
-        return np.transpose(M)
+        return np.transpose(np.floor(M).astype(dtype=np.int32))
 
     def render(self) -> np.ndarray:
         columns, rows = self._resolution
@@ -376,6 +379,7 @@ def new_hexagon(center: Point, side: float) -> Polygon:
 
 def main():
     resolutions: List[Resolution] = [
+        ( 100, 1000),
         ( 100,  100),
         ( 300,  300),
         ( 500,  500),
