@@ -1,6 +1,8 @@
 import numpy as np
 from os import path, mkdir
-from PIL import Image
+
+import PIL.Image
+from PIL.Image import Image
 
 import matplotlib.pyplot as plt
 
@@ -279,7 +281,7 @@ class Field:
 
         return np.transpose(np.floor(M).astype(dtype=np.int32))
 
-    def render(self) -> np.ndarray:
+    def render(self) -> Image:
         columns, rows = self._resolution
         field = np.zeros((rows, columns))
         points: List[np.ndarray] = []
@@ -297,11 +299,14 @@ class Field:
 
             points.append(self._raster_line(start_point, end_point))
         
+        img = PIL.Image.new('RGB', (columns, rows), "black")
+        pixels = img.load()
+
         M = np.concatenate(points, axis=0)
         for x, y in M:
-            field[y, x] = 1
+            pixels[x, y] = (255, 255, 255)
 
-        return np.flip(field, 0)
+        return img.transpose(PIL.Image.Transpose.FLIP_TOP_BOTTOM)
 
 def new_polygon(vertices: List[Point]) -> Polygon:
     edges: List[Tuple[int, int]] = [(x, x + 1) for x in range(len(vertices) - 1)]
@@ -480,9 +485,8 @@ def main():
             mkdir(path.join('.', 'images'))
 
         file_name = path.join('.', 'images', f'lines-{resolution[0]}x{resolution[1]}.png')
-        matrix = field.render()
+        field.render().save(file_name)
 
-        plt.imsave(file_name, matrix)
 
     for resolution in resolutions:
         field = Field(resolution)
@@ -545,9 +549,8 @@ def main():
         field.add_line(((+0.333, -1), (+0.333, +1)))
     
         file_name = path.join('.', 'images', f'quadrilateral-{resolution[0]}x{resolution[1]}.png')
-        matrix = field.render()
+        field.render().save(file_name)
 
-        plt.imsave(file_name, matrix)
     
 
 
