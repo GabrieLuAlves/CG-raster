@@ -14,21 +14,15 @@ ROOT_HEIGHT = 1000
 CANVAS_WIDTH = 400
 CANVAS_HEIGHT = 400
 RESOLUTIONS = [
-    (400, 400),
-    (100, 600),
-    (600, 100),
-    (1920, 1080),
+    (100, 100),
+    (300, 300),
+    (800, 600),
+    (1920, 1080)
 ]
-imagelist = sorted([image
-                    for image in os.listdir(f"{os.getcwd()}\\images") if
-                    image.endswith(".png") and image.startswith('quadrilateral-')],
-                   key=lambda item: literal_eval(item.strip('quadrilateral-').split('x')[0]))[:4]
 
 
 class Interface:
     def __init__(self):
-        print(imagelist)
-
         self.root = Tk()
 
         self.root.title("Geração de imagens")
@@ -44,9 +38,9 @@ class Interface:
         outputFrame.grid_columnconfigure(1, weight=1, minsize=ROOT_WIDTH / 2)
 
         upperOutputFrame = Frame(outputFrame)
-        lowerInputFrame = Frame(outputFrame)
+        lowerOutputFrame = Frame(outputFrame)
         upperOutputFrame.grid(row=0, column=1)
-        lowerInputFrame.grid(row=2, column=1)
+        lowerOutputFrame.grid(row=2, column=1)
 
         separator = Frame(outputFrame, width=25, height=25)
         separator.grid(row=1, column=0)
@@ -55,7 +49,7 @@ class Interface:
         self.textLabelsDict = dict()
 
         for index in range(0, 4):
-            master = upperOutputFrame if index < 2 else lowerInputFrame
+            master = upperOutputFrame if index < 2 else lowerOutputFrame
             column = index % 2
 
             self.imageFramesDict[index] = Frame(master)
@@ -70,20 +64,26 @@ class Interface:
         self.tkImages = []
 
         for index, frame in self.imageFramesDict.items():
-            current_image = f"images\\{imagelist[index]}"
-            img = Image.open(current_image).resize(size=(400, 400))  # size=(576, 324))
+
+            resolution = RESOLUTIONS[index]
+
+            aspect_ratio = resolution[0] / resolution[1]
+
+            current_image = f"images\\default.png"
+            img = Image.open(current_image).resize(size=(CANVAS_WIDTH, round(CANVAS_HEIGHT / aspect_ratio)))
             self.tkImages.append(ImageTk.PhotoImage(img))
             self.imageLabelsDict[index] = Label(frame, image=self.tkImages[index])
             self.imageLabelsDict[index].pack()
 
-        self.inputFrame = Frame(self.root, width=ROOT_WIDTH / 2, height=ROOT_HEIGHT)
-        self.inputFrame.grid_propagate(FALSE)
-        self.inputFrame.grid(row=0, column=1)
-        self.inputFrame.columnconfigure(1, weight=1)
+        inputFrame = Frame(self.root, width=ROOT_WIDTH / 2, height=ROOT_HEIGHT)
+        inputFrame.grid_propagate(FALSE)
+        inputFrame.grid(row=0, column=1)
+        inputFrame.columnconfigure(0, weight=1)
+        inputFrame.columnconfigure(1, weight=1)
 
-        inputValuesFrame = Frame(self.inputFrame)
-        inputValuesFrame.grid(row=0, column=0)
-        previewFrame = (Frame(self.inputFrame))
+        inputValuesFrame = Frame(inputFrame)
+        inputValuesFrame.grid(row=0, column=0, sticky='n')
+        previewFrame = Frame(inputFrame)
         previewFrame.grid(row=0, column=1)
 
         self.generate_line_input(inputValuesFrame, 0)
@@ -97,7 +97,7 @@ class Interface:
         buttonsFrames = Frame(previewFrame)
         buttonsFrames.grid(row=2, column=1)
 
-        self.reset_button = Button(buttonsFrames, text='Reset preview', command=self.reset_canvas)
+        self.reset_button = Button(buttonsFrames, text='Reset', command=self.reset_canvas)
         self.reset_button.grid(row=0, column=0, pady=(10, 0), padx=(0, 10))
 
         self.results_button = Button(buttonsFrames, text='Gerar Resultados', command=self.generate_results)
@@ -107,7 +107,7 @@ class Interface:
         Label(masterFrame, width=15, height=1, background='pink', text='Adicionar linha').grid(row=base_row,
                                                                                                column=0,
                                                                                                padx=20,
-                                                                                               pady=20)
+                                                                                               pady=(30, 20))
         lineInputFrame = Frame(masterFrame)
         lineInputFrame.grid(row=base_row + 1, column=0, sticky='w')
         Label(lineInputFrame, text='Insira os pontos:').grid(row=1, column=0, padx=(0, 10))
@@ -249,77 +249,31 @@ class Interface:
                                  padx=10)
         LineInputButton.grid(row=1, column=6)
 
-    def _add_hermite_curve(self):
+    def _add_line(self):
+
+        list_of_dots = []
         try:
-            list_of_dots = [float(entry.get().strip()) for entry in self.hermiteInputEntryList]
-            if not all(
-                    [
-                        -1 <= list_of_dots[0] <= 1,
-                        -1 <= list_of_dots[1] <= 1,
-                        -1 <= list_of_dots[2] <= 1,
-                        -1 <= list_of_dots[3] <= 1,
-                        0 < list_of_dots[8],
-                    ]
-            ):
-                raise ValueError
+            for entry in self.lineInputEntryList:
+                value = float(entry.get().strip())
+                if not -1 <= value <= 1:
+                    raise ValueError
 
-            print(list_of_dots)
+                list_of_dots.append(float(entry.get()))
+                entry.delete(0, END)
 
-            p0 = tuple(list_of_dots[:2])
-            p1 = tuple(list_of_dots[2:4])
-            t0 = tuple(list_of_dots[4:6])
-            t1 = tuple(list_of_dots[6:8])
-            p = int(list_of_dots[-1])
+            p1 = tuple(list_of_dots[:2])
+            p2 = tuple(list_of_dots[2:])
 
-            """
-            for point in range(0, len(list_of_dots) - 1, 2):
-                list_of_dots[point] = self.canvas.width / 2 + list_of_dots[point] * (self.canvas.width / 2)
+            self.canvas.create_line(
+                self.canvas.width / 2 + (list_of_dots[0] * (self.canvas.width / 2)),
+                self.canvas.height / 2 + (list_of_dots[1] * -(self.canvas.width / 2)),
+                self.canvas.width / 2 + (list_of_dots[2] * (self.canvas.width / 2)),
+                self.canvas.height / 2 + (list_of_dots[3] * -(self.canvas.width / 2)),
+                fill='red',
+                width=1,
+                tags='generated')
+            self.canvas.line_draws.append((p1, p2))
 
-            for point in range(1, len(list_of_dots) - 1, 2):
-                list_of_dots[point] = self.canvas.height / 2 + list_of_dots[point] * -(self.canvas.height / 2)
-            print(list_of_dots)
-
-            
-            """
-
-            normalized_vector = list_of_dots.copy()
-            for point in range(0, 4, 2):
-                normalized_vector[point] = self.canvas.width / 2 + normalized_vector[point] * (self.canvas.width / 2)
-
-            for point in range(1, 5, 2):
-                normalized_vector[point] = self.canvas.height / 2 + normalized_vector[point] * -(self.canvas.height / 2)
-            print(normalized_vector)
-
-            for point in range(4, len(normalized_vector) - 1, 2):
-                normalized_vector[point] = normalized_vector[point] * (self.canvas.width / 2)
-
-            for point in range(5, len(normalized_vector) - 1, 2):
-                normalized_vector[point] = normalized_vector[point] * -(self.canvas.width / 2)
-
-            print(normalized_vector)
-
-            def formula(P0, P1, T0, T1, t):
-                t2 = t * t
-                t3 = t2 * t
-                x = (2 * t3 - 3 * t2 + 1) * P0[0] + (t3 - 2 * t2 + t) * T0[0] + (-2 * t3 + 3 * t2) * P1[0] + (t3 - t2) * \
-                    T1[0]
-                y = (2 * t3 - 3 * t2 + 1) * P0[1] + (t3 - 2 * t2 + t) * T0[1] + (-2 * t3 + 3 * t2) * P1[1] + (t3 - t2) * \
-                    T1[1]
-                return x, y
-
-            p0_normalized = tuple(normalized_vector[:2])
-            p1_normalized = tuple(normalized_vector[2:4])
-            t0_normalized = tuple(normalized_vector[4:6])
-            t1_normalized = tuple(normalized_vector[6:8])
-
-            for t in range(0, p):
-                t_normalized = t / p
-                x, y = formula(p0_normalized, p1_normalized, t0_normalized, t1_normalized, t_normalized)
-                print(x, y)
-
-                self.canvas.create_line(x, y, x + 1, y + 1, fill="blue", width=2, tags='generated')
-
-            self.canvas.hermite_draws.append([p0, p1, t0, t1, p])
         except ValueError:
             pass
 
@@ -402,33 +356,77 @@ class Interface:
         except ValueError:
             pass
 
-    def _add_line(self):
-
-        list_of_dots = []
+    def _add_hermite_curve(self):
         try:
-            for entry in self.lineInputEntryList:
-                value = float(entry.get().strip())
-                if not -1 <= value <= 1:
-                    raise ValueError
-
-                list_of_dots.append(float(entry.get()))
-                entry.delete(0, END)
+            list_of_dots = [float(entry.get().strip()) for entry in self.hermiteInputEntryList]
+            if not all(
+                    [
+                        -1 <= list_of_dots[0] <= 1,
+                        -1 <= list_of_dots[1] <= 1,
+                        -1 <= list_of_dots[2] <= 1,
+                        -1 <= list_of_dots[3] <= 1,
+                        0 < list_of_dots[8],
+                    ]
+            ):
+                raise ValueError
 
             print(list_of_dots)
 
-            p1 = tuple(list_of_dots[:2])
-            p2 = tuple(list_of_dots[2:])
+            p0 = tuple(list_of_dots[:2])
+            p1 = tuple(list_of_dots[2:4])
+            t0 = tuple(list_of_dots[4:6])
+            t1 = tuple(list_of_dots[6:8])
+            p = int(list_of_dots[-1])
 
-            self.canvas.create_line(
-                self.canvas.width // 2 + (list_of_dots[0] * (self.canvas.width // 2)),
-                self.canvas.height // 2 + (list_of_dots[1] * -(self.canvas.width // 2)),
-                self.canvas.width // 2 + (list_of_dots[2] * (self.canvas.width // 2)),
-                self.canvas.height // 2 + (list_of_dots[3] * -(self.canvas.width // 2)),
-                fill='red',
-                width=1,
-                tags='generated')
-            self.canvas.line_draws.append((p1, p2))
+            """
+            for point in range(0, len(list_of_dots) - 1, 2):
+                list_of_dots[point] = self.canvas.width / 2 + list_of_dots[point] * (self.canvas.width / 2)
 
+            for point in range(1, len(list_of_dots) - 1, 2):
+                list_of_dots[point] = self.canvas.height / 2 + list_of_dots[point] * -(self.canvas.height / 2)
+            print(list_of_dots)
+
+
+            """
+
+            normalized_vector = list_of_dots.copy()
+            for point in range(0, 4, 2):
+                normalized_vector[point] = self.canvas.width / 2 + normalized_vector[point] * (self.canvas.width / 2)
+
+            for point in range(1, 5, 2):
+                normalized_vector[point] = self.canvas.height / 2 + normalized_vector[point] * -(self.canvas.height / 2)
+            print(normalized_vector)
+
+            for point in range(4, len(normalized_vector) - 1, 2):
+                normalized_vector[point] = normalized_vector[point] * (self.canvas.width / 2)
+
+            for point in range(5, len(normalized_vector) - 1, 2):
+                normalized_vector[point] = normalized_vector[point] * -(self.canvas.width / 2)
+
+            print(normalized_vector)
+
+            def formula(P0, P1, T0, T1, t):
+                t2 = t * t
+                t3 = t2 * t
+                x = (2 * t3 - 3 * t2 + 1) * P0[0] + (t3 - 2 * t2 + t) * T0[0] + (-2 * t3 + 3 * t2) * P1[0] + (t3 - t2) * \
+                    T1[0]
+                y = (2 * t3 - 3 * t2 + 1) * P0[1] + (t3 - 2 * t2 + t) * T0[1] + (-2 * t3 + 3 * t2) * P1[1] + (t3 - t2) * \
+                    T1[1]
+                return x, y
+
+            p0_normalized = tuple(normalized_vector[:2])
+            p1_normalized = tuple(normalized_vector[2:4])
+            t0_normalized = tuple(normalized_vector[4:6])
+            t1_normalized = tuple(normalized_vector[6:8])
+
+            for t in range(0, p):
+                t_normalized = t / p
+                x, y = formula(p0_normalized, p1_normalized, t0_normalized, t1_normalized, t_normalized)
+                print(x, y)
+
+                self.canvas.create_line(x, y, x + 1, y + 1, fill="blue", width=2, tags='generated')
+
+            self.canvas.hermite_draws.append([p0, p1, t0, t1, p])
         except ValueError:
             pass
 
@@ -466,15 +464,29 @@ class Interface:
             for curve in self.canvas.hermite_draws:
                 field.add_hermite_curve(curve[:-1], curve[-1])
 
-            res = field.resolution  # FIXME PARA FAZER CALCULOS CASOS MATENHAMOS O ASPECT RATIO
+            field_width, field_height = field.resolution
+            aspect_ratio = field_width / field_height
 
-            tkimage = ImageTk.PhotoImage(field.render().resize((400, 400)))
-            self.imageLabelsDict[index].config(image=tkimage)
-            self.imageLabelsDict[index].image = tkimage
+            self.tkImages[index] = ImageTk.PhotoImage(field.render().resize((CANVAS_WIDTH, round(CANVAS_HEIGHT / aspect_ratio))))
 
+            self.imageLabelsDict[index].config(image=self.tkImages[index])
+            self.imageLabelsDict[index].image = self.tkImages[index]
             index += 1
 
     def reset_canvas(self):
+        index = 0
+        for label in self.imageLabelsDict.values():
+            resolution = RESOLUTIONS[index]
+            aspect_ratio = resolution[0] / resolution[1]
+
+            default_image = f"images\\default.png"
+            img = Image.open(default_image).resize(size=(CANVAS_WIDTH, round(CANVAS_HEIGHT / aspect_ratio)))
+            self.tkImages[index] = ImageTk.PhotoImage(img)
+            label.config(image=self.tkImages[index])
+            label.image = self.tkImages[index]
+
+            index += 1
+
         self.canvas._reset()
 
 
@@ -489,7 +501,6 @@ class MyCanvas(Canvas):
         self.line_draws = list()
         self.polygon_draws = {'Triângulo': list(), 'Quadrado': list(), 'Hexágono': list()}
         self.hermite_draws = list()
-
 
         super().__init__(self.inputFrame, width=self.width, height=self.height, bg='white', borderwidth=0,
                          highlightbackground="black")
@@ -508,7 +519,7 @@ class MyCanvas(Canvas):
                                                                                            pady=20)
 
         self.grid(row=base_row + 1, column=base_column)
-        self.grid_propagate(FALSE)
+        #self.grid_propagate(FALSE)
 
         assert self.width / 20 == self.width // 20
 
@@ -534,7 +545,6 @@ class MyCanvas(Canvas):
 
         for type in tuple(self.polygon_draws):
             self.polygon_draws[type].clear()
-
 
     def on_canvas_click(self, event):
         print(event.x, event.y)
