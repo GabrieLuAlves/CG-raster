@@ -8,14 +8,14 @@ from tkinter import Button, Canvas, END, Entry, FALSE, Frame, Label, OptionMenu,
 import numpy as np
 import os
 
-from raster import Field, Line, Point
+from raster import Field, new_triangle, new_hexagon, new_rectangle
 
 ROOT_WIDTH = 1900
 ROOT_HEIGHT = 1000
 CANVAS_WIDTH = 400
 CANVAS_HEIGHT = 400
 RESOLUTIONS = [
-    (300, 300),
+    (400, 400),
     (100, 600),
     (600, 100),
     (1920, 1080),
@@ -32,7 +32,7 @@ class Interface:
 
         self.root = Tk()
 
-        self.root.title("Imagens geradas")
+        self.root.title("Geração de imagens")
         self.root.geometry(f"{ROOT_WIDTH}x{ROOT_HEIGHT}")
         self.root.resizable(width=FALSE, height=FALSE)
         self.root.grid_rowconfigure(0, weight=1)
@@ -257,13 +257,11 @@ class Interface:
 
     def _add_polygon(self, dropdown=None, option=None, mode=None):
         # FIXME INTEGRAR A API
-        print(self._selectedOption.get())
 
         list_of_dots = []
         try:
             p = float(self.polygonInputEntryList[-1].get().strip())
             if not 0 < p <= 1:
-                print(p)
                 raise ValueError
 
             for entry in self.polygonInputEntryList:
@@ -306,7 +304,9 @@ class Interface:
                 vertices = [x1, y1, x2, y2]
 
                 color = 'yellow'
-                self.canvas.polygon_draws.append(self.canvas.create_rectangle(vertices, fill=color, width=1))
+                self.canvas.polygon_draws['Quadrado'][self.canvas.create_rectangle(vertices, fill=color, width=1)] = (
+                    tuple(list_of_dots[:2]),
+                    list_of_dots[2])
                 return
 
             elif self._selectedOption.get() == 'Hexágono':
@@ -323,7 +323,10 @@ class Interface:
             else:
                 return
 
-            self.canvas.polygon_draws.append(self.canvas.create_polygon(vertices, fill=color, width=1))
+            self.canvas.polygon_draws[self._selectedOption.get()][self.canvas.create_polygon(vertices, fill=color, width=1)] = (
+                tuple(list_of_dots[:2]),
+                list_of_dots[2]
+            )
 
         except ValueError:
             pass
@@ -352,8 +355,7 @@ class Interface:
                 self.canvas.width // 2 + (list_of_dots[2] * (self.canvas.width // 2)),
                 self.canvas.height // 2 + (list_of_dots[3] * -(self.canvas.width // 2)),
                 fill='red',
-                width=10))] = (p1, p2)
-            print(self.canvas.line_draws)
+                width=1))] = (p1, p2)
         except ValueError:
             pass
 
@@ -363,28 +365,30 @@ class Interface:
         for res in RESOLUTIONS:
             self.fields.append(Field(res))
 
+        index = 0
         for field in self.fields:
             for line in self.canvas.line_draws.values():
                 field.add_line(line)
-                print(field.resolution)
 
-            #            print('RESULTADO:', type(field.render()))
+            for polygon_type in self.canvas.polygon_draws.keys():
+                if polygon_type == 'Triângulo':
+                    for polygon in self.canvas.polygon_draws[polygon_type].values():
+                        sides = tuple([polygon[1]])
+                        field.add_polygon(new_triangle(polygon[0], sides))
+                elif polygon_type == 'Quadrado':
+                    for polygon in self.canvas.polygon_draws[polygon_type].values():
+                        field.add_polygon(new_rectangle(polygon[0], polygon[1], polygon[1]))
+                elif polygon_type == 'Hexágono':
+                    for polygon in self.canvas.polygon_draws[polygon_type].values():
+                        field.add_polygon(new_hexagon(polygon[0], polygon[1]))
 
-            # NOVO RASTER
+            res = field.resolution # FIXME PARA FAZER CALCULOS CASOS MATENHAMOS O ASPECT RATIO
 
-            tkimage = ImageTk.PhotoImage(field.render())
+            tkimage = ImageTk.PhotoImage(field.render().resize((400, 400)))
+            self.imageLabelsDict[index].config(image=tkimage)
+            self.imageLabelsDict[index].image=tkimage
 
-
-            # OLD RASTER
-            #test = Image.fromarray(field.render()).resize((400, 400))
-            #tkimage = ImageTk.PhotoImage(test)
-
-            #self.imageLabelsDict[0].config(image=tkimage)
-            #self.imageLabelsDict[0].image = tkimage
-            #self.imageLabelsDict[0].pack()
-
-
-        print(self.fields)
+            index += 1
 
     def reset_canvas(self):
         self.canvas._reset()
@@ -399,7 +403,7 @@ class MyCanvas(Canvas):
         self.base_row = base_row
         self.base_column = base_column
         self.line_draws = dict()
-        self.polygon_draws = []
+        self.polygon_draws = {'Triângulo': dict(), 'Quadrado': dict(), 'Hexágono': dict()}
 
         super().__init__(self.inputFrame, width=self.width, height=self.height, bg='white', borderwidth=0,
                          highlightbackground="black")
@@ -438,8 +442,15 @@ class MyCanvas(Canvas):
         # self.scale("all", self.width // 2, self.height // 2, 1, -1)
 
     def _reset(self):
-        for draw in tuple(self.line_draws) + tuple(self.polygon_draws):
+        polygon_draws = []
+        for type in tuple(self.polygon_draws):
+            polygon_draws = polygon_draws + list(self.polygon_draws[type])
+            self.polygon_draws[type].clear()
+
+        for draw in list(self.line_draws) + polygon_draws:
             self.delete(draw)
+
+        self.line_draws.clear()
 
     def on_canvas_click(self, event):
         print(event.x, event.y)
@@ -447,12 +458,6 @@ class MyCanvas(Canvas):
         y = (-(event.y - self.height // 2)) / (self.height / 2)
         print(f"Clicou em ({x}, {y})")
 
-    def render(self):
-        pass
-
-
-def update_image(label: Label, tkImage: ImageTk):
-    label.config(image=tkImage)
 
 
 if __name__ == '__main__':
