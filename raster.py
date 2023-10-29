@@ -301,7 +301,10 @@ class Field:
 
         M = np.concatenate(points, axis=0)
         for x, y in M:
-            pixels[x, y] = (255, 255, 255)
+            try:
+                pixels[x, y] = (255, 255, 255)
+            except IndexError:
+                continue
 
         return img.transpose(PIL.Image.Transpose.FLIP_TOP_BOTTOM)
 

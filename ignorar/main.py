@@ -1,7 +1,6 @@
 from ast import literal_eval
 from math import cos, sin, sqrt, pi
 
-import PIL.Image
 from PIL import ImageTk, Image
 from tkinter import Button, Canvas, END, Entry, FALSE, Frame, Label, OptionMenu, StringVar, Tk
 
@@ -38,25 +37,25 @@ class Interface:
         self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
 
-        self.outputFrame = Frame(self.root, width=1500, height=850)
-        self.outputFrame.grid_propagate(FALSE)
-        self.outputFrame.grid(row=0, column=0)
-        self.outputFrame.grid_rowconfigure(1, weight=1)
-        self.outputFrame.grid_columnconfigure(1, weight=1, minsize=ROOT_WIDTH / 2)
+        outputFrame = Frame(self.root, width=1500, height=850)
+        outputFrame.grid_propagate(FALSE)
+        outputFrame.grid(row=0, column=0)
+        outputFrame.grid_rowconfigure(1, weight=1)
+        outputFrame.grid_columnconfigure(1, weight=1, minsize=ROOT_WIDTH / 2)
 
-        upperif = Frame(self.outputFrame)
-        lowerif = Frame(self.outputFrame)
-        upperif.grid(row=0, column=1)
-        lowerif.grid(row=2, column=1)
+        upperOutputFrame = Frame(outputFrame)
+        lowerInputFrame = Frame(outputFrame)
+        upperOutputFrame.grid(row=0, column=1)
+        lowerInputFrame.grid(row=2, column=1)
 
-        separator = Frame(self.outputFrame, width=25, height=25)
+        separator = Frame(outputFrame, width=25, height=25)
         separator.grid(row=1, column=0)
 
         self.imageFramesDict = dict()
         self.textLabelsDict = dict()
 
         for index in range(0, 4):
-            master = upperif if index < 2 else lowerif
+            master = upperOutputFrame if index < 2 else lowerInputFrame
             column = index % 2
 
             self.imageFramesDict[index] = Frame(master)
