@@ -1,16 +1,25 @@
 from ast import literal_eval
 from math import cos, sin, sqrt, pi
-from tkinter import *
+
+import PIL.Image
+from PIL import ImageTk, Image
+from tkinter import Button, Canvas, END, Entry, FALSE, Frame, Label, OptionMenu, StringVar, Tk
 
 import numpy as np
-from PIL import ImageTk, Image
 import os
+
+from raster import Field, Line, Point
 
 ROOT_WIDTH = 1900
 ROOT_HEIGHT = 1000
 CANVAS_WIDTH = 400
 CANVAS_HEIGHT = 400
-
+RESOLUTIONS = [
+    (300, 300),
+    (100, 600),
+    (600, 100),
+    (1920, 1080),
+]
 imagelist = sorted([image
                     for image in os.listdir(f"{os.getcwd()}\\images") if
                     image.endswith(".png") and image.startswith('quadrilateral-')],
@@ -33,7 +42,7 @@ class Interface:
         self.outputFrame.grid_propagate(FALSE)
         self.outputFrame.grid(row=0, column=0)
         self.outputFrame.grid_rowconfigure(1, weight=1)
-        self.outputFrame.grid_columnconfigure(1, weight=1, minsize=900)
+        self.outputFrame.grid_columnconfigure(1, weight=1, minsize=ROOT_WIDTH / 2)
 
         upperif = Frame(self.outputFrame)
         lowerif = Frame(self.outputFrame)
@@ -65,26 +74,42 @@ class Interface:
             current_image = f"images\\{imagelist[index]}"
             img = Image.open(current_image).resize(size=(400, 400))  # size=(576, 324))
             self.tkImages.append(ImageTk.PhotoImage(img))
-            self.imageLabelsDict[index] = Label(frame, image=self.tkImages[index], bg="white")
+            self.imageLabelsDict[index] = Label(frame, image=self.tkImages[index])
             self.imageLabelsDict[index].pack()
 
-        self.inputFrame = Frame(self.root, width=800, height=ROOT_HEIGHT)
+        self.inputFrame = Frame(self.root, width=ROOT_WIDTH / 2, height=ROOT_HEIGHT)
         self.inputFrame.grid_propagate(FALSE)
         self.inputFrame.grid(row=0, column=1)
-        self.inputFrame.columnconfigure(1, minsize=800)
+        self.inputFrame.columnconfigure(1, weight=1)
 
-        self.generate_line_input(0)
+        inputValuesFrame = Frame(self.inputFrame)
+        inputValuesFrame.grid(row=0, column=0)
+        previewFrame = (Frame(self.inputFrame))
+        previewFrame.grid(row=0, column=1)
 
-        self._currentPolygonOption = None
-        self.generate_polygon_input(2)
+        self.generate_line_input(inputValuesFrame, 0)
 
-        self.canvas = MyCanvas(self.inputFrame, CANVAS_WIDTH, CANVAS_HEIGHT)
-    def generate_line_input(self, base_row):
-        Label(self.inputFrame, width=15, height=1, background='pink', text='Adicionar linha').grid(row=base_row,
-                                                                                                   column=0,
-                                                                                                   padx=20,
-                                                                                                   pady=20)
-        lineInputFrame = Frame(self.inputFrame)
+        self.generate_polygon_input(inputValuesFrame, 2)
+
+        self.generate_hermite_input(inputValuesFrame, 6)
+
+        self.canvas = MyCanvas(previewFrame, CANVAS_WIDTH, CANVAS_HEIGHT, 0, 1)
+
+        buttonsFrames = Frame(previewFrame)
+        buttonsFrames.grid(row=2, column=1)
+
+        self.reset_button = Button(buttonsFrames, text='Reset', command=self.reset_canvas)
+        self.reset_button.grid(row=0, column=0, pady=(10, 0), padx=(0, 10))
+
+        self.results_button = Button(buttonsFrames, text='Gerar Resultados', command=self.generate_results)
+        self.results_button.grid(row=0, column=1, pady=(10, 0), padx=(0, 10))
+
+    def generate_line_input(self, masterFrame, base_row):
+        Label(masterFrame, width=15, height=1, background='pink', text='Adicionar linha').grid(row=base_row,
+                                                                                               column=0,
+                                                                                               padx=20,
+                                                                                               pady=20)
+        lineInputFrame = Frame(masterFrame)
         lineInputFrame.grid(row=base_row + 1, column=0, sticky='w')
         Label(lineInputFrame, text='Insira os pontos:').grid(row=1, column=0, padx=(0, 10))
 
@@ -113,12 +138,12 @@ class Interface:
                                  padx=10)
         LineInputButton.grid(row=1, column=6)
 
-    def generate_polygon_input(self, base_row):
-        Label(self.inputFrame, width=15, height=1, background='pink', text='Adicionar Poligono').grid(row=base_row,
-                                                                                                      column=0,
-                                                                                                      padx=20,
-                                                                                                      pady=20)
-        self.polygonInputFrame = Frame(self.inputFrame)
+    def generate_polygon_input(self, masterFrame, base_row):
+        Label(masterFrame, width=15, height=1, background='pink', text='Adicionar Poligono').grid(row=base_row,
+                                                                                                  column=0,
+                                                                                                  padx=20,
+                                                                                                  pady=20)
+        self.polygonInputFrame = Frame(masterFrame)
         self.polygonInputFrame.grid(row=base_row + 1, column=0, sticky='w')
 
         Label(self.polygonInputFrame, text='Escolha o polígono:').grid(row=1, column=0)
@@ -129,9 +154,6 @@ class Interface:
 
         self.polygonsDropdown = OptionMenu(self.polygonInputFrame, self._selectedOption, *options)
         self.polygonsDropdown.grid(row=1, column=1)
-
-        if self._selectedOption.get() == self._currentPolygonOption:
-            return
 
         if hasattr(self, 'currentPolygonInput'):
             self.currentPolygonInput.destroy()
@@ -157,12 +179,93 @@ class Interface:
                                     padx=10)
         polygonInputButton.grid(row=2, column=6, sticky='n', padx=(10, 0))
 
+    def generate_hermite_input(self, masterFrame, base_row):
+        Label(masterFrame, width=24, height=1, background='pink', text='Adicionar curva de Hermite').grid(
+            row=base_row,
+            column=0,
+            padx=20,
+            pady=20,
+            sticky='n',
+        )
+
+        hermiteInputFrame = Frame(masterFrame)
+        hermiteInputFrame.grid(row=base_row + 1, column=0)
+
+        Label(hermiteInputFrame, text='Insira os pontos:').grid(row=1, column=0, padx=(0, 10))
+
+        Label(hermiteInputFrame, text='x1', height=1).grid(row=1, column=1)
+        hermiteInputEntryx1 = Entry(hermiteInputFrame, width=10)
+
+        Label(hermiteInputFrame, text='y1', height=1).grid(row=1, column=3)
+        hermiteInputEntryy1 = Entry(hermiteInputFrame, width=10)
+
+        Label(hermiteInputFrame, text='x2', height=1).grid(row=2, column=1)
+        hermiteInputEntryx2 = Entry(hermiteInputFrame, width=10)
+
+        Label(hermiteInputFrame, text='y2', height=1).grid(row=2, column=3)
+        hermiteInputEntryy2 = Entry(hermiteInputFrame, width=10)
+
+        hermiteInputEntryx1.grid(row=1, column=2, padx=5)
+        hermiteInputEntryy1.grid(row=1, column=4, padx=5)
+        hermiteInputEntryx2.grid(row=2, column=2, padx=5)
+        hermiteInputEntryy2.grid(row=2, column=4, padx=5)
+
+        Label(hermiteInputFrame, text='Insira os vetores T1 e T2:').grid(row=3, column=0, padx=(0, 10))
+
+        Label(hermiteInputFrame, text='Tx1').grid(row=3, column=1)
+        hermiteInputEntryTx1 = Entry(hermiteInputFrame, width=10)
+
+        Label(hermiteInputFrame, text='Ty1').grid(row=3, column=3)
+        hermiteInputEntryTy1 = Entry(hermiteInputFrame, width=10)
+
+        Label(hermiteInputFrame, text='Ty2').grid(row=4, column=1)
+        hermiteInputEntryTx2 = Entry(hermiteInputFrame, width=10)
+
+        Label(hermiteInputFrame, text='Ty2').grid(row=4, column=3)
+        hermiteInputEntryTy2 = Entry(hermiteInputFrame, width=10)
+
+        hermiteInputEntryTx1.grid(row=3, column=2, padx=5)
+        hermiteInputEntryTy1.grid(row=3, column=4, padx=5)
+        hermiteInputEntryTx2.grid(row=4, column=2, padx=5)
+        hermiteInputEntryTy2.grid(row=4, column=4, padx=5)
+
+        Label(hermiteInputFrame, text='Insira a quantidade de pontos:').grid(row=5, column=0, padx=(0, 10))
+
+        Label(hermiteInputFrame, text='P').grid(row=5, column=1)
+
+        hermiteInputEntryP = Entry(hermiteInputFrame, width=10)
+        hermiteInputEntryP.grid(row=5, column=2)
+
+        self.hermiteInputEntryList = (
+            hermiteInputEntryx1, hermiteInputEntryy1,
+            hermiteInputEntryx2, hermiteInputEntryy2,
+            hermiteInputEntryTx1, hermiteInputEntryTy1,
+            hermiteInputEntryTx2, hermiteInputEntryTy2,
+            hermiteInputEntryP,
+        )
+
+        Frame(hermiteInputFrame, bg='blue').grid(row=1, column=5, padx=5)
+
+        LineInputButton = Button(hermiteInputFrame, command=self._add_hermite_curve, width=5, text='Enviar',
+                                 padx=10)
+        LineInputButton.grid(row=1, column=6)
+
+    def _add_hermite_curve(self):
+        list_of_dots = []
+
+        pass
+
     def _add_polygon(self, dropdown=None, option=None, mode=None):
         # FIXME INTEGRAR A API
         print(self._selectedOption.get())
 
         list_of_dots = []
         try:
+            p = float(self.polygonInputEntryList[-1].get().strip())
+            if not 0 < p <= 1:
+                print(p)
+                raise ValueError
+
             for entry in self.polygonInputEntryList:
                 value = float(entry.get().strip())
                 if not -1 <= value <= 1:
@@ -171,10 +274,8 @@ class Interface:
                 list_of_dots.append(float(entry.get()))
                 entry.delete(0, END)
 
-            if not list_of_dots[-1] > 0:
-                raise ValueError
-
             vertices = list()
+            color = str()
 
             if self._selectedOption.get() == 'Triângulo':
 
@@ -190,7 +291,7 @@ class Interface:
 
                 vertices = [x1, y1, x2, y2, x3, y3]
 
-                self.canvas.draws.append(self.canvas.create_polygon(vertices, fill="green", width=1))
+                color = 'green'
 
             elif self._selectedOption.get() == 'Quadrado':
 
@@ -204,7 +305,9 @@ class Interface:
 
                 vertices = [x1, y1, x2, y2]
 
-                self.canvas.draws.append(self.canvas.create_rectangle(vertices, fill='yellow', width=1))
+                color = 'yellow'
+                self.canvas.polygon_draws.append(self.canvas.create_rectangle(vertices, fill=color, width=1))
+                return
 
             elif self._selectedOption.get() == 'Hexágono':
                 for i in range(6):
@@ -215,7 +318,13 @@ class Interface:
                     y += (self.canvas.height / 2)
                     vertices.extend((x, y))
 
-                self.canvas.draws.append(self.canvas.create_polygon(vertices, fill='blue', width=1))
+                color = 'blue'
+
+            else:
+                return
+
+            self.canvas.polygon_draws.append(self.canvas.create_polygon(vertices, fill=color, width=1))
+
         except ValueError:
             pass
 
@@ -234,41 +343,81 @@ class Interface:
 
             print(list_of_dots)
 
-            self.canvas.draws.append(self.canvas.create_line(
+            p1 = tuple(list_of_dots[:2])
+            p2 = tuple(list_of_dots[2:])
+
+            self.canvas.line_draws[(self.canvas.create_line(
                 self.canvas.width // 2 + (list_of_dots[0] * (self.canvas.width // 2)),
                 self.canvas.height // 2 + (list_of_dots[1] * -(self.canvas.width // 2)),
                 self.canvas.width // 2 + (list_of_dots[2] * (self.canvas.width // 2)),
                 self.canvas.height // 2 + (list_of_dots[3] * -(self.canvas.width // 2)),
                 fill='red',
-                width=1))
-
+                width=10))] = (p1, p2)
+            print(self.canvas.line_draws)
         except ValueError:
             pass
 
+    def generate_results(self):
+        self.fields = list()
+
+        for res in RESOLUTIONS:
+            self.fields.append(Field(res))
+
+        for field in self.fields:
+            for line in self.canvas.line_draws.values():
+                field.add_line(line)
+                print(field.resolution)
+
+            #            print('RESULTADO:', type(field.render()))
+
+            # NOVO RASTER
+
+            tkimage = ImageTk.PhotoImage(field.render())
+
+
+            # OLD RASTER
+            #test = Image.fromarray(field.render()).resize((400, 400))
+            #tkimage = ImageTk.PhotoImage(test)
+
+            #self.imageLabelsDict[0].config(image=tkimage)
+            #self.imageLabelsDict[0].image = tkimage
+            #self.imageLabelsDict[0].pack()
+
+
+        print(self.fields)
+
+    def reset_canvas(self):
+        self.canvas._reset()
+
 
 class MyCanvas(Canvas):
-    def __init__(self, input_frame, input_width, input_height):
+    def __init__(self, input_frame, input_width, input_height, base_row, base_column):
         self.inputFrame = input_frame
         self.width = input_width
         self.height = input_height
         self.canvas_exist = False
-        self.draws = list()
+        self.base_row = base_row
+        self.base_column = base_column
+        self.line_draws = dict()
+        self.polygon_draws = []
 
         super().__init__(self.inputFrame, width=self.width, height=self.height, bg='white', borderwidth=0,
                          highlightbackground="black")
 
-        self._generate_canvas()
+        self._generate_canvas(base_row, base_column)
 
-    def _generate_canvas(self):
+    def _generate_canvas(self, base_row, base_column):
         if self.canvas_exist:
             return
 
         self.canvas_exist = True
 
-        Label(self.inputFrame, width=15, height=1, background='pink', text='Preview').grid(row=4, column=0, padx=20,
+        Label(self.inputFrame, width=15, height=1, background='pink', text='Preview').grid(row=base_row,
+                                                                                           column=base_column,
+                                                                                           padx=20,
                                                                                            pady=20)
 
-        self.grid(row=5, column=0)
+        self.grid(row=base_row + 1, column=base_column)
         self.grid_propagate(FALSE)
 
         assert self.width / 20 == self.width // 20
@@ -288,11 +437,8 @@ class MyCanvas(Canvas):
         self.bind('<Button-1>', self.on_canvas_click)
         # self.scale("all", self.width // 2, self.height // 2, 1, -1)
 
-        self.reset_button = Button(self.inputFrame, text='Reset', command=self.reset)
-        self.reset_button.grid(row=6, column=0, pady=(10, 0))
-
-    def reset(self):
-        for draw in self.draws:
+    def _reset(self):
+        for draw in tuple(self.line_draws) + tuple(self.polygon_draws):
             self.delete(draw)
 
     def on_canvas_click(self, event):
@@ -301,13 +447,12 @@ class MyCanvas(Canvas):
         y = (-(event.y - self.height // 2)) / (self.height / 2)
         print(f"Clicou em ({x}, {y})")
 
+    def render(self):
+        pass
+
 
 def update_image(label: Label, tkImage: ImageTk):
     label.config(image=tkImage)
-
-
-def generate_hermite_input():
-    pass
 
 
 if __name__ == '__main__':
