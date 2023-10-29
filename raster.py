@@ -4,15 +4,13 @@ from os import path, mkdir
 import PIL.Image
 from PIL.Image import Image
 
-import matplotlib.pyplot as plt
-
 from typing import List, Tuple
 
 Resolution = Tuple[int, int]
 Point = Tuple[float, float]
 Line = Tuple[Point, Point]
 Polygon = Tuple[List[Point], List[Tuple[int, int]]]
-HermineCurve = Tuple[Point, Point, Tuple[float, float], Tuple[float, float]]
+HermiteCurve = Tuple[Point, Point, Tuple[float, float], Tuple[float, float]]
 
 
 class PointModifier:
@@ -101,7 +99,7 @@ class Field:
 
         self._lines: List[Line] = []
         self._polygons: List[Polygon] = []
-        self._curves: List[HermineCurve] = []
+        self._curves: List[Tuple[HermiteCurve, int]] = []
 
     @property
     def resolution(self):
@@ -117,8 +115,8 @@ class Field:
     def add_polygon(self, polygon: Polygon):
         self._polygons.append(polygon)
 
-    def add_hermine_curve(self, curve: HermineCurve):
-        self._curves.append(curve)
+    def add_hermite_curve(self, curve: HermiteCurve, n_points: int):
+        self._curves.append((curve, n_points))
 
     def _map_points(self, points: List[Point]) -> List[Point]:
         width, height = self._resolution
@@ -195,7 +193,7 @@ class Field:
 
         return points
 
-    def _raster_hermine_curve(self, curve: HermineCurve, n_points: int) -> np.ndarray:
+    def _raster_hermite_curve(self, curve: HermiteCurve, n_points: int) -> np.ndarray:
         p1, p2, t1, t2 = curve
 
         points_t: List[float] = [t / (n_points - 1) for t in range(n_points)]
@@ -283,11 +281,10 @@ class Field:
 
     def render(self) -> Image:
         columns, rows = self._resolution
-        field = np.zeros((rows, columns))
         points: List[np.ndarray] = []
 
-        for curve in self._curves:
-            points.append(self._raster_hermine_curve(curve, 10))
+        for curve, n_points in self._curves:
+            points.append(self._raster_hermite_curve(curve, n_points))
 
         for polygon in self._polygons:
             points.append(self._draw_polygon(polygon))
@@ -301,7 +298,6 @@ class Field:
 
         img = PIL.Image.new('RGB', (columns, rows), "black")
         pixels = img.load()
-
 
         M = np.concatenate(points, axis=0)
         for x, y in M:
@@ -429,30 +425,30 @@ def main():
             field.add_line((p1, p2))
 
         for radius in radii:
-            field.add_hermine_curve((
+            field.add_hermite_curve((
                 (+0.0, +radius),
                 (+radius, +0.0),
                 (+1.675 * radius, +0.0),
                 (+0.0, -1.675 * radius),
-            ))
-            field.add_hermine_curve((
+            ), 20)
+            field.add_hermite_curve((
                 (+radius, +0.0),
                 (+0.0, -radius),
                 (+0.0, -1.675 * radius),
                 (-1.675 * radius, +0.0),
-            ))
-            field.add_hermine_curve((
+            ), 20)
+            field.add_hermite_curve((
                 (+0.0, -radius),
                 (-radius, +0.0),
                 (-1.675 * radius, +0.0),
                 (+0.0, +1.675 * radius),
-            ))
-            field.add_hermine_curve((
+            ), 20)
+            field.add_hermite_curve((
                 (-radius, +0.0),
                 (+0.0, +radius),
                 (+0.0, +1.675 * radius),
                 (+1.675 * radius, +0.0),
-            ))
+            ), 20)
 
         random_numbers = np.random.random((16, 2))
         random_numbers[:, 0] = 0.75 * random_numbers[:, 0] + 0.1
@@ -468,7 +464,7 @@ def main():
             x, y = random_numbers[i]
             i += 1
 
-            field.add_hermine_curve(((x, y), (x, y), (-0.15, +0.2), (-0.15, -0.2)))
+            field.add_hermite_curve(((x, y), (x, y), (-0.15, +0.2), (-0.15, -0.2)), 10)
 
         for _ in range(4):
             x, y = random_numbers[i]
