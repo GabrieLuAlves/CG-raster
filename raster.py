@@ -136,10 +136,6 @@ class Field:
         vertices, connections = polygon
 
         vertices = self._map_points(vertices)
-
-        for i in range(len(vertices)):
-            x, y = vertices[i]
-            vertices[i] = np.floor(x) + 0.5, np.floor(y) + 0.5
         
         x_left, _ = vertices[0]
         x_right, _ = vertices[0]
@@ -152,34 +148,24 @@ class Field:
                 x_right = x
     
         points = []
-        
-        path = list(filter(lambda c: vertices[c[0]][0] != vertices[c[1]][0], connections))
 
-        length = int(x_right - x_left + 1)
-
-        for x in np.linspace(x_left, x_right, num=length):
+        x = x_left
+        while x <= x_right:
             intercepted_y: List[float] = []
             
-            _, last_edges_final_vertex = path[-1]
-            for i, j in path:
+            for i, j in connections:
                 x1, y1 = vertices[i]
                 x2, y2 = vertices[j]
 
-                m = (y1 - y2) / (x1 - x2)
-
-                # y = m * x + n
-                y = m * x + y1 - m * x1
-
-                if last_edges_final_vertex == i:
-                    if (x1 < x2 and x1 < x and x <= x2) or \
-                        (x1 > x2 and x2 <= x and x < x1):
+                if x1 != x2:
+                    if (x1 < x2 and x1 <= x and x < x2) or \
+                        (x1 > x2 and x2 < x and x <= x1):
+                        m = (y1 - y2) / (x1 - x2)
+                        y = m * x + y1 - m * x1
                         intercepted_y.append(y)
-                else:
-                    if (x1 < x2 and x1 <= x and x <= x2) or \
-                        (x1 > x2 and x2 <= x and x <= x1):
-                        intercepted_y.append(y)
-                
-                last_edges_final_vertex = j
+                elif x1 == x:
+                    intercepted_y.append(y1)
+                    
 
             if len(intercepted_y) == 2:
                 points.append(self._raster_line((x, intercepted_y[1]), (x, intercepted_y[0])))
@@ -188,6 +174,7 @@ class Field:
             else:
                 raise Exception(f'Unexpeced error. Number of intercepted lines in polygon rasterization was {len(intercepted_y)}')        
 
+            x += 1
         points = np.concatenate(points, axis=0)
 
         return points
@@ -241,6 +228,9 @@ class Field:
         x1, y1 = start_point
         x2, y2 = end_point
 
+        #x1, y1 = np.floor(x1) + 0.5, np.floor(y1) + 0.5
+        #x2, y2 = np.floor(x2) + 0.5, np.floor(y2) + 0.5
+
         if np.abs(x1 - x2) >= np.abs(y1 - y2):
             m = (y1 - y2) / (x1 - x2)
             n = y1 - m * x1
@@ -252,7 +242,7 @@ class Field:
                 np.array([x]),
                 np.arange(np.ceil(x) + 0.5, np.floor(xf) - 0.4, step=1),
                 np.array([xf])
-            ], axis=0)
+            ])
 
             M = np.array([
                 x_values,
@@ -270,7 +260,7 @@ class Field:
                 np.array([y]),
                 np.arange(np.ceil(y) + 0.5, np.floor(yf) - 0.4, step=1),
                 np.array([yf])
-            ], axis=0)
+            ])
             
             M = np.array([
                 y_values * m + n,
