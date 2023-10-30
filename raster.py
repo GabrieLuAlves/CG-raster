@@ -238,11 +238,14 @@ class Field:
             x = x1 if x1 <= x2 else x2
             xf = x2 if x1 <= x2 else x1
             
-            x_values = np.concatenate([
-                np.array([x]),
-                np.arange(np.ceil(x) + 0.5, np.floor(xf) - 0.4, step=1),
-                np.array([xf])
-            ])
+            
+            x_values = []
+            end = np.floor(xf)
+            while x < end:
+                x_values.append(x)
+                x += 1
+            x_values.append(xf)
+            x_values = np.array(x_values)
 
             M = np.array([
                 x_values,
@@ -256,11 +259,13 @@ class Field:
             y = y1 if y1 <= y2 else y2
             yf = y2 if y1 <= y2 else y1
             
-            y_values = np.concatenate([
-                np.array([y]),
-                np.arange(np.ceil(y) + 0.5, np.floor(yf) - 0.4, step=1),
-                np.array([yf])
-            ])
+            y_values = []
+            end = np.floor(yf)
+            while y < end:
+                y_values.append(y)
+                y += 1
+            y_values.append(yf)
+            y_values = np.array(y_values)
             
             M = np.array([
                 y_values * m + n,
@@ -468,10 +473,10 @@ def main():
 
             field.add_polygon(new_hexagon((x, y), 0.0289))
 
-        if not path.exists(path.join('.', 'images')):
-            mkdir(path.join('.', 'images'))
+        if not path.exists(path.join('.', 'generated_images')):
+            mkdir(path.join('.', 'generated_images'))
 
-        file_name = path.join('.', 'images', f'lines-{resolution[0]}x{resolution[1]}.png')
+        file_name = path.join('.', 'generated_images', f'lines-{resolution[0]}x{resolution[1]}.png')
         field.render().save(file_name)
 
 
@@ -535,7 +540,7 @@ def main():
         field.add_line(((-0.333, -1), (-0.333, +1)))
         field.add_line(((+0.333, -1), (+0.333, +1)))
     
-        file_name = path.join('.', 'images', f'quadrilateral-{resolution[0]}x{resolution[1]}.png')
+        file_name = path.join('.', 'generated_images', f'quadrilateral-{resolution[0]}x{resolution[1]}.png')
         field.render().save(file_name)
 
     
