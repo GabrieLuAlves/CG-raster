@@ -1,7 +1,8 @@
+import tkinter
 from math import cos, sin, sqrt, pi
 
 from PIL import ImageTk, Image
-from tkinter import Button, Canvas, END, Entry, FALSE, Frame, Label, OptionMenu, StringVar, Tk
+from tkinter import Button, Canvas, END, Entry, FALSE, Frame, Label, OptionMenu, Scrollbar, StringVar, Tk
 
 import numpy as np
 import os
@@ -63,7 +64,6 @@ class Interface:
         self.tkImages = []
 
         for index, frame in self.imageFramesDict.items():
-
             resolution = RESOLUTIONS[index]
 
             aspect_ratio = resolution[0] / resolution[1]
@@ -101,6 +101,26 @@ class Interface:
 
         self.results_button = Button(buttonsFrames, text='Gerar Resultados', command=self.generate_results)
         self.results_button.grid(row=0, column=1, pady=(10, 0), padx=(0, 10))
+
+        Label(inputFrame, text="Pontos inseridos:").grid(row=1, column=0)
+        self.inputListLabel = tkinter.Text(inputFrame, width=55, height=15, wrap='word')
+
+        text = (
+            f"Linhas: {self.canvas.line_draws}\n"
+            f"\n"
+            f"Triângulos: {self.canvas.polygon_draws['Triângulo']}\n"
+            f"Quadrados: {self.canvas.polygon_draws['Quadrado']}\n"
+            f"Hexágonos: {self.canvas.polygon_draws['Hexágono']}\n"
+            f"\n"
+            f"Linhas de Hermite: {self.canvas.hermite_draws}")
+
+        self.inputListLabel.insert('1.0', text)
+        self.inputListLabel.grid(row=2, column=0)
+        self.inputListLabel.columnconfigure(0, minsize=360)
+        self.inputListLabel.config(state='disabled')
+
+        scrollbar = Scrollbar(self.inputListLabel, orient='vertical', command=self.inputListLabel.yview)
+        self.inputListLabel.config(yscrollcommand=scrollbar.set)
 
     def generate_line_input(self, masterFrame, base_row):
         Label(masterFrame, width=15, height=1, background='pink', text='Adicionar linha').grid(row=base_row,
@@ -247,40 +267,43 @@ class Interface:
 
     def _add_line(self):
 
-        list_of_dots = []
-
         try:
+            list_of_points = [float(element.get().strip()) for element in self.lineInputEntryList]
+
             if not all(
-                [
-                    -1 <= float(element.get().strip()) <= 1 for element in self.lineInputEntryList
+                    [
+                        all(-1 <= element <= 1 for element in list_of_points),
+                        list_of_points not in self.canvas.line_draws
                     ]):
-                    raise ValueError
+                raise ValueError
 
             for entry in self.lineInputEntryList:
-                value = float(entry.get().strip())
-                list_of_dots.append(value)
                 entry.delete(0, END)
 
-            p1 = tuple(list_of_dots[:2])
-            p2 = tuple(list_of_dots[2:])
+            p1 = tuple(list_of_points[:2])
+            p2 = tuple(list_of_points[2:])
+
+            if (p1, p2) in self.canvas.line_draws:
+                raise ValueError
 
             self.canvas.create_line(
-                self.canvas.width / 2 + (list_of_dots[0] * (self.canvas.width / 2)),
-                self.canvas.height / 2 + (list_of_dots[1] * -(self.canvas.width / 2)),
-                self.canvas.width / 2 + (list_of_dots[2] * (self.canvas.width / 2)),
-                self.canvas.height / 2 + (list_of_dots[3] * -(self.canvas.width / 2)),
+                self.canvas.width / 2 + (list_of_points[0] * (self.canvas.width / 2)),
+                self.canvas.height / 2 + (list_of_points[1] * -(self.canvas.width / 2)),
+                self.canvas.width / 2 + (list_of_points[2] * (self.canvas.width / 2)),
+                self.canvas.height / 2 + (list_of_points[3] * -(self.canvas.width / 2)),
                 fill='red',
                 width=1,
                 tags='generated')
             self.canvas.line_draws.append((p1, p2))
+            self.update_input_list()
 
         except ValueError:
             pass
 
     def _add_polygon(self, dropdown=None, option=None, mode=None):
 
-        list_of_dots = []
         try:
+            list_of_points = []
 
             x = float(self.polygonInputEntryList[0].get().strip())
             y = float(self.polygonInputEntryList[1].get().strip())
@@ -289,11 +312,12 @@ class Interface:
             if not all(
                     [-1 <= x <= 1,
                      -1 <= y <= 1,
-                     0 < p <= 2]):
+                     0 < p <= 2,
+                     [tuple((tuple((x, y)), p))] not in self.canvas.polygon_draws.values()]):
                 raise ValueError
 
             for entry in self.polygonInputEntryList:
-                list_of_dots.append(float(entry.get().strip()))
+                list_of_points.append(float(entry.get().strip()))
                 entry.delete(0, END)
 
             vertices = list()
@@ -301,14 +325,14 @@ class Interface:
 
             if self._selectedOption.get() == 'Triângulo':
 
-                center_x = self.canvas.width / 2 + (list_of_dots[0] * (self.canvas.width / 2))
-                center_y = self.canvas.height / 2 + (list_of_dots[1] * -(self.canvas.width / 2))
+                center_x = self.canvas.width / 2 + (list_of_points[0] * (self.canvas.width / 2))
+                center_y = self.canvas.height / 2 + (list_of_points[1] * -(self.canvas.width / 2))
 
-                x1 = center_x - ((list_of_dots[2] * self.canvas.width / 2)) / 2
-                y1 = center_y + (((sqrt(3) / 2) * list_of_dots[2] * self.canvas.width) / 2) / 2
+                x1 = center_x - ((list_of_points[2] * self.canvas.width / 2)) / 2
+                y1 = center_y + (((sqrt(3) / 2) * list_of_points[2] * self.canvas.width) / 2) / 2
                 x2 = center_x
-                y2 = center_y + (((sqrt(3) / 2) * list_of_dots[2] * -self.canvas.width) / 2) / 2
-                x3 = center_x + ((list_of_dots[2] * self.canvas.width) / 2) / 2
+                y2 = center_y + (((sqrt(3) / 2) * list_of_points[2] * -self.canvas.width) / 2) / 2
+                x3 = center_x + ((list_of_points[2] * self.canvas.width) / 2) / 2
                 y3 = y1
 
                 vertices = [x1, y1, x2, y2, x3, y3]
@@ -317,28 +341,29 @@ class Interface:
 
             elif self._selectedOption.get() == 'Quadrado':
 
-                center_x = self.canvas.width / 2 + (list_of_dots[0] * (self.canvas.width / 2))
-                center_y = self.canvas.height / 2 + (list_of_dots[1] * -(self.canvas.width / 2))
+                center_x = self.canvas.width / 2 + (list_of_points[0] * (self.canvas.width / 2))
+                center_y = self.canvas.height / 2 + (list_of_points[1] * -(self.canvas.width / 2))
 
-                x1 = center_x - (list_of_dots[2] * self.canvas.width / 2) / 2
-                y1 = center_y - (list_of_dots[2] * -(self.canvas.width / 2)) / 2
-                x2 = center_x + (list_of_dots[2] * self.canvas.width / 2) / 2
-                y2 = center_y + (list_of_dots[2] * -(self.canvas.width / 2)) / 2
+                x1 = center_x - (list_of_points[2] * self.canvas.width / 2) / 2
+                y1 = center_y - (list_of_points[2] * -(self.canvas.width / 2)) / 2
+                x2 = center_x + (list_of_points[2] * self.canvas.width / 2) / 2
+                y2 = center_y + (list_of_points[2] * -(self.canvas.width / 2)) / 2
 
                 vertices = [x1, y1, x2, y2]
 
                 color = 'yellow'
                 self.canvas.create_rectangle(vertices, fill=color, width=1, tags='generated')
                 self.canvas.polygon_draws['Quadrado'].append((
-                    tuple(list_of_dots[:2]),
-                    list_of_dots[2]))
+                    tuple(list_of_points[:2]),
+                    list_of_points[2]))
+                self.update_input_list()
                 return
 
             elif self._selectedOption.get() == 'Hexágono':
                 for i in range(6):
                     angle = 2 * pi / 6 * i
-                    x = (list_of_dots[0] + list_of_dots[2] * cos(angle)) * (self.canvas.width / 2)
-                    y = (list_of_dots[1] + list_of_dots[2] * sin(angle)) * (-self.canvas.height / 2)
+                    x = (list_of_points[0] + list_of_points[2] * cos(angle)) * (self.canvas.width / 2)
+                    y = (list_of_points[1] + list_of_points[2] * sin(angle)) * (-self.canvas.height / 2)
                     x += (self.canvas.width / 2)
                     y += (self.canvas.height / 2)
                     vertices.extend((x, y))
@@ -350,22 +375,23 @@ class Interface:
 
             self.canvas.create_polygon(vertices, fill=color, width=1, tags='generated')
             self.canvas.polygon_draws[self._selectedOption.get()].append((
-                tuple(list_of_dots[:2]),
-                list_of_dots[2]))
+                tuple(list_of_points[:2]),
+                list_of_points[2]))
+            self.update_input_list()
 
         except ValueError:
             pass
 
     def _add_hermite_curve(self):
         try:
-            list_of_dots = [float(entry.get().strip()) for entry in self.hermiteInputEntryList]
+            list_of_points = [float(entry.get().strip()) for entry in self.hermiteInputEntryList]
             if not all(
                     [
-                        -1 <= list_of_dots[0] <= 1,
-                        -1 <= list_of_dots[1] <= 1,
-                        -1 <= list_of_dots[2] <= 1,
-                        -1 <= list_of_dots[3] <= 1,
-                        0 < list_of_dots[8],
+                        -1 <= list_of_points[0] <= 1,
+                        -1 <= list_of_points[1] <= 1,
+                        -1 <= list_of_points[2] <= 1,
+                        -1 <= list_of_points[3] <= 1,
+                        0 < list_of_points[8],
                     ]
             ):
                 raise ValueError
@@ -373,40 +399,24 @@ class Interface:
             for entry in self.hermiteInputEntryList:
                 entry.delete(0, END)
 
-            print(list_of_dots)
+            p0 = tuple(list_of_points[:2])
+            p1 = tuple(list_of_points[2:4])
+            t0 = tuple(list_of_points[4:6])
+            t1 = tuple(list_of_points[6:8])
+            p = int(list_of_points[-1])
 
-            p0 = tuple(list_of_dots[:2])
-            p1 = tuple(list_of_dots[2:4])
-            t0 = tuple(list_of_dots[4:6])
-            t1 = tuple(list_of_dots[6:8])
-            p = int(list_of_dots[-1])
-
-            """
-            for point in range(0, len(list_of_dots) - 1, 2):
-                list_of_dots[point] = self.canvas.width / 2 + list_of_dots[point] * (self.canvas.width / 2)
-
-            for point in range(1, len(list_of_dots) - 1, 2):
-                list_of_dots[point] = self.canvas.height / 2 + list_of_dots[point] * -(self.canvas.height / 2)
-            print(list_of_dots)
-
-
-            """
-
-            normalized_vector = list_of_dots.copy()
+            normalized_vector = list_of_points.copy()
             for point in range(0, 4, 2):
                 normalized_vector[point] = self.canvas.width / 2 + normalized_vector[point] * (self.canvas.width / 2)
 
             for point in range(1, 5, 2):
                 normalized_vector[point] = self.canvas.height / 2 + normalized_vector[point] * -(self.canvas.height / 2)
-            print(normalized_vector)
 
             for point in range(4, len(normalized_vector) - 1, 2):
                 normalized_vector[point] = normalized_vector[point] * (self.canvas.width / 2)
 
             for point in range(5, len(normalized_vector) - 1, 2):
                 normalized_vector[point] = normalized_vector[point] * -(self.canvas.width / 2)
-
-            print(normalized_vector)
 
             def formula(P0, P1, T0, T1, t):
                 t2 = t * t
@@ -424,12 +434,15 @@ class Interface:
 
             for t in range(0, p):
                 t_normalized = t / p
-                x, y = formula(p0_normalized, p1_normalized, t0_normalized, t1_normalized, t_normalized)
-                print(x, y)
+                t2 = (t + 1) / p
+                x1, y1 = formula(p0_normalized, p1_normalized, t0_normalized, t1_normalized, t_normalized)
+                x2, y2 = formula(p0_normalized, p1_normalized, t0_normalized, t1_normalized, t2)
 
-                self.canvas.create_line(x, y, x + 1, y + 1, fill="blue", width=2, tags='generated')
+                self.canvas.create_line(x1, y1, x2, y2, fill="blue", width=2, tags='generated')
 
             self.canvas.hermite_draws.append([p0, p1, t0, t1, p])
+            self.update_input_list()
+
         except ValueError:
             pass
 
@@ -470,11 +483,28 @@ class Interface:
             field_width, field_height = field.resolution
             aspect_ratio = field_width / field_height
 
-            self.tkImages[index] = ImageTk.PhotoImage(field.render().resize((CANVAS_WIDTH, round(CANVAS_HEIGHT / aspect_ratio))))
+            self.tkImages[index] = ImageTk.PhotoImage(
+                field.render().resize((CANVAS_WIDTH, round(CANVAS_HEIGHT / aspect_ratio))))
 
             self.imageLabelsDict[index].config(image=self.tkImages[index])
             self.imageLabelsDict[index].image = self.tkImages[index]
             index += 1
+
+    def update_input_list(self):
+        self.inputListLabel.config(state='normal')
+        self.inputListLabel.delete('1.0', 'end')
+
+        text = (f"Linhas: {self.canvas.line_draws}\n"
+                f"\n"
+                f"Triângulos: {self.canvas.polygon_draws['Triângulo']}\n"
+                f"Quadrados: {self.canvas.polygon_draws['Quadrado']}\n"
+                f"Hexágonos: {self.canvas.polygon_draws['Hexágono']}\n"
+                f"\n"
+                f"Linhas de Hermite: {self.canvas.hermite_draws}\n"
+                )
+
+        self.inputListLabel.insert('1.0', text)
+        self.inputListLabel.config(state='disabled')
 
     def reset_canvas(self):
         index = 0
@@ -491,7 +521,7 @@ class Interface:
             index += 1
 
         self.canvas._reset()
-
+        self.update_input_list()
 
 class MyCanvas(Canvas):
     def __init__(self, input_frame, input_width, input_height, base_row, base_column):
@@ -550,7 +580,6 @@ class MyCanvas(Canvas):
         self.hermite_draws.clear()
 
     def on_canvas_click(self, event):
-        print(event.x, event.y)
         x = (event.x - self.width // 2) / (self.width / 2)
         y = (-(event.y - self.height // 2)) / (self.height / 2)
         print(f"Clicou em ({x}, {y})")
