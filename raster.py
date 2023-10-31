@@ -137,6 +137,10 @@ class Field:
 
         vertices = self._map_points(vertices)
         
+        for i in range(len(vertices)):
+            x, y = vertices[i]
+            vertices[i] = np.floor(x) + 0.5, y
+
         x_left, _ = vertices[0]
         x_right, _ = vertices[0]
 
@@ -167,12 +171,10 @@ class Field:
                     intercepted_y.append(y1)
                     
 
-            if len(intercepted_y) == 2:
-                points.append(self._raster_line((x, intercepted_y[1]), (x, intercepted_y[0])))
-            elif len(intercepted_y) == 1:
+            if len(intercepted_y) == 1:
                 points.append(np.array([[x, intercepted_y[0]]]).astype('int32'))
             else:
-                raise Exception(f'Unexpeced error. Number of intercepted lines in polygon rasterization was {len(intercepted_y)}')        
+                points.append(self._raster_line((x, intercepted_y[-1]), (x, intercepted_y[0])))
 
             x += 1
         points = np.concatenate(points, axis=0)
@@ -209,8 +211,6 @@ class Field:
         M[:, 0] = M[:, 0] * kw
         M[:, 1] = M[:, 1] * kh
 
-        M = np.floor(M) + 0.5
-
         x1, y1 = M[0, :]
 
         points: List[np.ndarray] = []
@@ -235,17 +235,17 @@ class Field:
             m = (y1 - y2) / (x1 - x2)
             n = y1 - m * x1
 
-            x = x1 if x1 <= x2 else x2
-            xf = x2 if x1 <= x2 else x1
+            x = np.floor(x1 if x1 <= x2 else x2) + 0.5
+            xf = np.floor(x2 if x1 <= x2 else x1) + 0.5
             
             
             x_values = []
-            end = np.floor(xf)
-            while x < end:
+            end = xf
+            while x <= end:
                 x_values.append(x)
                 x += 1
-            x_values.append(xf)
-            x_values = np.array(x_values)
+
+            x_values = np.array(x_values, dtype=np.float64)
 
             M = np.array([
                 x_values,
@@ -256,16 +256,16 @@ class Field:
             m = (x1 - x2) / (y1 - y2)
             n = x1 - m * y1
 
-            y = y1 if y1 <= y2 else y2
-            yf = y2 if y1 <= y2 else y1
+            y = np.floor(y1 if y1 <= y2 else y2) + 0.5
+            yf = np.floor(y2 if y1 <= y2 else y1) + 0.5
             
             y_values = []
-            end = np.floor(yf)
-            while y < end:
+            end = yf
+            while y <= end:
                 y_values.append(y)
                 y += 1
-            y_values.append(yf)
-            y_values = np.array(y_values)
+
+            y_values = np.array(y_values, dtype=np.float64)
             
             M = np.array([
                 y_values * m + n,
@@ -448,30 +448,7 @@ def main():
         random_numbers[:, 0] = aux_column * np.cos(random_numbers[:, 1])
         random_numbers[:, 1] = aux_column * np.sin(random_numbers[:, 1])
 
-        i = 0
-        for _ in range(4):
-            x, y = random_numbers[i]
-            i += 1
 
-            field.add_hermite_curve(((x, y), (x, y), (-0.15, +0.2), (-0.15, -0.2)), 10)
-
-        for _ in range(4):
-            x, y = random_numbers[i]
-            i += 1
-
-            field.add_polygon(new_triangle((x, y), (0.0577,)))
-
-        for _ in range(4):
-            x, y = random_numbers[i]
-            i += 1
-
-            field.add_polygon(new_rectangle((x, y), 0.05, 0.05))
-        
-        for _ in range(4):
-            x, y = random_numbers[i]
-            i += 1
-
-            field.add_polygon(new_hexagon((x, y), 0.0289))
 
         if not path.exists(path.join('.', 'generated_images')):
             mkdir(path.join('.', 'generated_images'))
