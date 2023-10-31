@@ -432,11 +432,11 @@ class Interface:
             t0_normalized = tuple(normalized_vector[4:6])
             t1_normalized = tuple(normalized_vector[6:8])
 
-            for t in range(0, p):
-                t_normalized = t / p
-                t2 = (t + 1) / p
-                x1, y1 = formula(p0_normalized, p1_normalized, t0_normalized, t1_normalized, t_normalized)
-                x2, y2 = formula(p0_normalized, p1_normalized, t0_normalized, t1_normalized, t2)
+            points_t = [t / (p - 1) for t in range(p)]
+
+            for i in range(len(points_t) - 1):
+                x1, y1 = formula(p0_normalized, p1_normalized, t0_normalized, t1_normalized, points_t[i])
+                x2, y2 = formula(p0_normalized, p1_normalized, t0_normalized, t1_normalized, points_t[i + 1])
 
                 self.canvas.create_line(x1, y1, x2, y2, fill="blue", width=2, tags='generated')
 
@@ -512,7 +512,7 @@ class Interface:
             resolution = RESOLUTIONS[index]
             aspect_ratio = resolution[0] / resolution[1]
 
-            default_image = f"images\\default.png"
+            default_image = f"images/default.png"
             img = Image.open(default_image).resize(size=(CANVAS_WIDTH, round(CANVAS_HEIGHT / aspect_ratio)))
             self.tkImages[index] = ImageTk.PhotoImage(img)
             label.config(image=self.tkImages[index])
