@@ -104,10 +104,12 @@ class Field:
         self._lines: List[Line] = []
         self._polygons: List[Polygon] = []
         self._curves: List[Tuple[HermiteCurve, int]] = []
-    
+
+
     @property
     def resolution(self):
         return self._resolution
+
     
     @resolution.setter
     def resolution(self, val: Resolution):
@@ -142,9 +144,6 @@ class Field:
 
     def _raster_polygon(self, polygon: Polygon) -> npt.NDArray[np.int32]:
         vertices, edges = polygon
-        columns, rows = self._resolution
-    
-        draft_field = np.full((rows, columns), 0, dtype=np.uint8)
 
         edges_cells_list: List[npt.NDArray[np.int32]] = []
 
@@ -163,19 +162,27 @@ class Field:
 
         max_y = np.max(edges_cells[:, 1])
         min_y = np.min(edges_cells[:, 1])
-        min_x = np.min(edges_cells[:, 0])
         max_x = np.max(edges_cells[:, 0])
+        min_x = np.min(edges_cells[:, 0])
+
+        draft_field_height = max_y - min_y + 1
+        draft_field_width = max_x - min_x + 1
+
+        draft_field = np.full((draft_field_height, draft_field_width), 0, dtype=np.uint8)
+
+        edges_cells[:, 0] -= min_x
+        edges_cells[:, 1] -= min_y
 
         for x, y in edges_cells:
             draft_field[y, x] = 1
         
         t1 = time_ns()
-        inner_polygon_cells: List[npt.NDArray] = []
+        inner_polygon_cells_list: List[npt.NDArray] = []
 
-        for y in range(max_y, min_y - 1, -1):
+        for y in range(0, draft_field_height):
             current = 0
             changes = 0
-            for x in range(min_x, max_x + 1):
+            for x in range(0, draft_field_width):
                 if draft_field[y, x] != current:
                     current = draft_field[y, x]
                     changes += 1
@@ -185,22 +192,30 @@ class Field:
             
             current = 0
             changes = 0
-            for x in range(min_x, max_x + 1):
+            for x in range(0, draft_field_width):
                 if draft_field[y, x] != current:
                     changes += 1
                     current = draft_field[y, x]
                 
                 if (changes / 2) % 2 == 1:
-                    inner_polygon_cells.append(np.array([x, y]))
+                    inner_polygon_cells_list.append(np.array([x, y]))
         
         t2 = time_ns()
+
+        edges_cells[:, 0] += min_x
+        edges_cells[:, 1] += min_y
+
+        inner_polygon_cells = np.vstack(inner_polygon_cells_list)
+
+        inner_polygon_cells[:, 0] += min_x
+        inner_polygon_cells[:, 1] += min_y
 
         string = f'Time to raster {max_x - min_x + 1}x{max_y - min_y + 1}' + f'polygon: {(t2 - t1) / 10 ** 3}'
         print(string)
 
         return np.vstack([
             edges_cells,
-            np.vstack(inner_polygon_cells),
+            inner_polygon_cells,
         ])
 
     def _raster_hermite_curve(self, curve: HermiteCurve, n_points: int) -> np.ndarray:
