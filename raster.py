@@ -1,4 +1,8 @@
 import numpy as np
+import numpy.typing as npt
+
+from time import time_ns
+
 from os import path, mkdir
 
 import PIL.Image
@@ -108,137 +112,161 @@ class Field:
     @resolution.setter
     def resolution(self, val: Resolution):
         self._resolution = val
-    
+
+
     def add_line(self, line: Line) -> None:
         self._lines.append(line)
-    
+
+
     def add_polygon(self, polygon: Polygon):
         self._polygons.append(polygon)
-    
+
+
     def add_hermite_curve(self, curve: HermiteCurve, n_points: int):
         self._curves.append((curve, n_points))
-    
+
+
     def _map_points(self, points: List[Point]) -> List[Point]:
         width, height = self._resolution
 
         kw = width / 2
         kh = height / 2
 
-        M = np.array(points)
-        M[M == 1] = 0.999999
+        M: npt.NDArray[np.float32] = np.array(points)
+        M[M >= 1] = 0.999999
         M = M + 1
         M[:, 0] *= kw
         M[:, 1] *= kh  
 
         return [(x, y) for x, y in M]
 
-    def _draw_polygon(self, polygon: Polygon):
-        vertices, connections = polygon
-
-        vertices = self._map_points(vertices)
-        
-        for i in range(len(vertices)):
-            x, y = vertices[i]
-            vertices[i] = np.floor(x) + 0.5, y
-
-        x_left, _ = vertices[0]
-        x_right, _ = vertices[0]
-
-        for i in range(1, len(vertices)):
-            x, _ = vertices[i]
-            if x_left > x:
-                x_left = x
-            elif x_right < x:
-                x_right = x
+    def _raster_polygon(self, polygon: Polygon) -> npt.NDArray[np.int32]:
+        vertices, edges = polygon
+        columns, rows = self._resolution
     
-        points = []
+        draft_field = np.full((rows, columns), 0, dtype=np.uint8)
 
-        x = x_left
-        while x <= x_right:
-            intercepted_y: List[float] = []
+        edges_cells_list: List[npt.NDArray[np.int32]] = []
+
+        for i, j in edges:
+            point_a = vertices[i]
+            point_b = vertices[j]
+            edges_cells_list.append(
+                self._raster_line(
+                    (point_a[0], point_a[1]),
+                    (point_b[0], point_b[1]),
+                )
+            )
+
+        edges_cells = np.vstack(edges_cells_list)
+        del edges_cells_list
+
+        max_y = np.max(edges_cells[:, 1])
+        min_y = np.min(edges_cells[:, 1])
+        min_x = np.min(edges_cells[:, 0])
+        max_x = np.max(edges_cells[:, 0])
+
+        for x, y in edges_cells:
+            draft_field[y, x] = 1
+        
+        t1 = time_ns()
+        inner_polygon_cells: List[npt.NDArray] = []
+
+        for y in range(max_y, min_y - 1, -1):
+            current = 0
+            changes = 0
+            for x in range(min_x, max_x + 1):
+                if draft_field[y, x] != current:
+                    current = draft_field[y, x]
+                    changes += 1
+                
+            if changes == 2:
+                continue
             
-            for i, j in connections:
-                x1, y1 = vertices[i]
-                x2, y2 = vertices[j]
+            current = 0
+            changes = 0
+            for x in range(min_x, max_x + 1):
+                if draft_field[y, x] != current:
+                    changes += 1
+                    current = draft_field[y, x]
+                
+                if (changes / 2) % 2 == 1:
+                    inner_polygon_cells.append(np.array([x, y]))
+        
+        t2 = time_ns()
 
-                if x1 != x2:
-                    if (x1 < x2 and x1 <= x and x < x2) or \
-                        (x1 > x2 and x2 < x and x <= x1):
-                        m = (y1 - y2) / (x1 - x2)
-                        y = m * x + y1 - m * x1
-                        intercepted_y.append(y)
-                elif x1 == x:
-                    intercepted_y.append(y1)
-                    
+        string = f'Time to raster {max_x - min_x + 1}x{max_y - min_y + 1}' + f'polygon: {(t2 - t1) / 10 ** 3}'
+        print(string)
 
-            if len(intercepted_y) == 1:
-                points.append(np.array([[x, intercepted_y[0]]]).astype('int32'))
-            else:
-                points.append(self._raster_line((x, intercepted_y[-1]), (x, intercepted_y[0])))
-
-            x += 1
-        points = np.concatenate(points, axis=0)
-
-        return points
+        return np.vstack([
+            edges_cells,
+            np.vstack(inner_polygon_cells),
+        ])
 
     def _raster_hermite_curve(self, curve: HermiteCurve, n_points: int) -> np.ndarray:
         p1, p2, t1, t2 = curve
 
         points_t: List[float] = [t / (n_points - 1) for t in range(n_points)]
 
-        t: List[List[float]] = [[t * t * t, t * t, t, 1] for t in points_t]
+        input_matrix = np.array(
+            [np.array([np.power(t, 3), np.power(t, 2), np.power(t, 1), 1]) for t in points_t]
+        )
 
-        M = np.array(t) \
-        .dot(np.array([
+        coeficients_matrix = np.array([
             [+2, -2, +1, +1],
             [-3, +3, -2, -1],
             [+0, +0, +1, +0],
             [+1, +0, +0, +0],
-        ])) \
-        .dot(np.array([
+        ])
+
+        parameters_matrix = np.array([
             p1,
             p2,
             t1,
             t2,
-        ]))
-        width, height = self._resolution
+        ])
 
-        kw = width / 2.0
-        kh = height / 2.0
-
-        M[M >= 1] = 0.999
-        M = M + 1
-        M[:, 0] = M[:, 0] * kw
-        M[:, 1] = M[:, 1] * kh
+        M = input_matrix.dot(coeficients_matrix).dot(parameters_matrix)
 
         x1, y1 = M[0, :]
 
-        points: List[np.ndarray] = []
+        points: List[npt.NDArray[np.int32]] = []
         for x2, y2 in M[1:, :]:
             points.append(self._raster_line((x1, y1), (x2, y2)))
             x1, y1 = x2, y2
         
-        return np.concatenate(points, axis=0)
+        return np.vstack(points)
 
-        
-    def _raster_line(self, start_point: Point, end_point: Point) -> np.ndarray:
+
+    def _raster_line(self, start_point: Point, end_point: Point) -> npt.NDArray[np.int32]:
         if start_point == end_point:
             return np.floor(np.array([start_point])).astype(dtype='int32')
+
+        columns, rows = self._resolution
 
         x1, y1 = start_point
         x2, y2 = end_point
 
-        #x1, y1 = np.floor(x1) + 0.5, np.floor(y1) + 0.5
-        #x2, y2 = np.floor(x2) + 0.5, np.floor(y2) + 0.5
+        x1 += 1
+        x2 += 1
+        y1 += 1
+        y2 += 1
+
+        x1 *= columns / 2
+        x2 *= columns / 2
+        y1 *= rows / 2
+        y2 *= rows / 2
 
         if np.abs(x1 - x2) >= np.abs(y1 - y2):
             m = (y1 - y2) / (x1 - x2)
             n = y1 - m * x1
 
-            x = np.floor(x1 if x1 <= x2 else x2) + 0.5
-            xf = np.floor(x2 if x1 <= x2 else x1) + 0.5
-            
-            
+            x = x1 if x1 <= x2 else x2
+            xf = x2 if x1 <= x2 else x1
+
+            x = np.round(x, 3)
+            xf = np.round(xf, 3)
+
             x_values = []
             end = xf
             while x <= end:
@@ -256,8 +284,11 @@ class Field:
             m = (x1 - x2) / (y1 - y2)
             n = x1 - m * y1
 
-            y = np.floor(y1 if y1 <= y2 else y2) + 0.5
-            yf = np.floor(y2 if y1 <= y2 else y1) + 0.5
+            y = y1 if y1 <= y2 else y2
+            yf = y2 if y1 <= y2 else y1
+
+            y = np.round(y, 3)
+            yf = np.round(yf, 3)
             
             y_values = []
             end = yf
@@ -274,37 +305,40 @@ class Field:
 
         return np.transpose(np.floor(M).astype(dtype=np.int32))
 
+
     def render(self) -> Image:
         columns, rows = self._resolution
         points: List[np.ndarray] = []
 
+        for polygon in self._polygons:
+            points.append(self._raster_polygon(polygon))
+
         for curve, n_points in self._curves:
             points.append(self._raster_hermite_curve(curve, n_points))
 
-        for polygon in self._polygons:
-            points.append(self._draw_polygon(polygon))
-
         for start_point, end_point in self._lines:
-            [start_point, end_point] = self._map_points([
-                start_point, end_point
-            ])
+            points.append(self._raster_line(start_point, end_point))      
 
-            points.append(self._raster_line(start_point, end_point))
-        
+
         img = PIL.Image.new('RGB', (columns, rows), "black")
         pixels = img.load()
 
         M = np.concatenate(points, axis=0)
         for x, y in M:
-            pixels[x, y] = (255, 255, 255)
-
+            try:
+                pixels[x, y] = (255, 255, 255)
+            except IndexError:
+                ...
+        
         return img.transpose(PIL.Image.Transpose.FLIP_TOP_BOTTOM)
+
 
 def new_polygon(vertices: List[Point]) -> Polygon:
     edges: List[Tuple[int, int]] = [(x, x + 1) for x in range(len(vertices) - 1)]
     edges.append((len(vertices) - 1, 0))
 
     return (vertices, edges)
+
 
 def new_triangle(center: Point, sides_sizes: Tuple[float, ...]) -> Polygon:
     x_center, y_center = center
@@ -335,6 +369,7 @@ def new_triangle(center: Point, sides_sizes: Tuple[float, ...]) -> Polygon:
     else:
         raise Exception('The sizes array length must be at least 1 and at maximum 3')
 
+
 def new_rectangle(center: Point, width: float, height: float) -> Polygon:
     x, y = center
 
@@ -347,6 +382,7 @@ def new_rectangle(center: Point, width: float, height: float) -> Polygon:
         (x - width, y - height),
     ])
 
+
 def new_diamond(center: Point, width: float, height: float) -> Polygon:
     x, y = center
 
@@ -358,6 +394,7 @@ def new_diamond(center: Point, width: float, height: float) -> Polygon:
         (x + width, y),
         (x, y - height),
     ])
+
 
 def new_hexagon(center: Point, side: float) -> Polygon:
     half_height = side * 0.866
@@ -374,7 +411,9 @@ def new_hexagon(center: Point, side: float) -> Polygon:
         (x - side, y),
     ])
 
+
 def main():
+
     resolutions: List[Resolution] = [
         ( 100, 1000),
         ( 100,  100),
@@ -448,8 +487,6 @@ def main():
         random_numbers[:, 0] = aux_column * np.cos(random_numbers[:, 1])
         random_numbers[:, 1] = aux_column * np.sin(random_numbers[:, 1])
 
-
-
         if not path.exists(path.join('.', 'generated_images')):
             mkdir(path.join('.', 'generated_images'))
 
@@ -519,8 +556,6 @@ def main():
     
         file_name = path.join('.', 'generated_images', f'quadrilateral-{resolution[0]}x{resolution[1]}.png')
         field.render().save(file_name)
-
-    
 
 
 if __name__ == '__main__':
