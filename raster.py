@@ -127,21 +127,6 @@ class Field:
     def add_hermite_curve(self, curve: HermiteCurve, n_points: int):
         self._curves.append((curve, n_points))
 
-
-    def _map_points(self, points: List[Point]) -> List[Point]:
-        width, height = self._resolution
-
-        kw = width / 2
-        kh = height / 2
-
-        M: npt.NDArray[np.float32] = np.array(points)
-        M[M >= 1] = 0.999999
-        M = M + 1
-        M[:, 0] *= kw
-        M[:, 1] *= kh  
-
-        return [(x, y) for x, y in M]
-
     def _raster_polygon(self, polygon: Polygon) -> npt.NDArray[np.int32]:
         vertices, edges = polygon
 
@@ -262,6 +247,18 @@ class Field:
         x1, y1 = start_point
         x2, y2 = end_point
 
+        if x1 == 1.0:
+            x1 = 0.999999
+            
+        if x2 == 1.0:
+            x2 = 0.999999
+            
+        if y1 == 1.0:
+            y1 = 0.999999
+            
+        if y2 == 1.0:
+            y2 = 0.999999
+
         x1 += 1
         x2 += 1
         y1 += 1
@@ -276,11 +273,8 @@ class Field:
             m = (y1 - y2) / (x1 - x2)
             n = y1 - m * x1
 
-            x = x1 if x1 <= x2 else x2
-            xf = x2 if x1 <= x2 else x1
-
-            x = np.round(x, 3)
-            xf = np.round(xf, 3)
+            x = np.float64(x1 if x1 <= x2 else x2)
+            xf = np.float64(x2 if x1 <= x2 else x1)
 
             x_values = []
             end = xf
@@ -299,11 +293,8 @@ class Field:
             m = (x1 - x2) / (y1 - y2)
             n = x1 - m * y1
 
-            y = y1 if y1 <= y2 else y2
-            yf = y2 if y1 <= y2 else y1
-
-            y = np.round(y, 3)
-            yf = np.round(yf, 3)
+            y = np.float64(y1 if y1 <= y2 else y2)
+            yf = np.float64(y2 if y1 <= y2 else y1)
             
             y_values = []
             end = yf
