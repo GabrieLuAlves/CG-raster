@@ -129,6 +129,9 @@ class Field:
 
     def _raster_polygon(self, polygon: Polygon) -> npt.NDArray[np.int32]:
         vertices, edges = polygon
+        columns, rows = self._resolution
+    
+        draft_field = np.full((rows, columns), 0, dtype=np.uint8)
 
         edges_cells_list: List[npt.NDArray[np.int32]] = []
 
@@ -145,29 +148,38 @@ class Field:
         edges_cells = np.vstack(edges_cells_list)
         del edges_cells_list
 
-        max_y = np.max(edges_cells[:, 1])
-        min_y = np.min(edges_cells[:, 1])
-        max_x = np.max(edges_cells[:, 0])
-        min_x = np.min(edges_cells[:, 0])
+        for i in range(len(edges_cells)):
+            x = edges_cells[i, 0]
+            y = edges_cells[i, 1]
 
-        draft_field_height = max_y - min_y + 1
-        draft_field_width = max_x - min_x + 1
+            if x < 0:
+                x = 0
+            elif x >= columns:
+                x = columns - 1
 
-        draft_field = np.full((draft_field_height, draft_field_width), 0, dtype=np.uint8)
+            if y < 0:
+                y = 0
+            elif y >= rows:
+                y = rows - 1
+            
+            edges_cells[i, 0] = x
+            edges_cells[i, 1] = y
 
-        edges_cells[:, 0] -= min_x
-        edges_cells[:, 1] -= min_y
-
-        for x, y in edges_cells:
+        for x, y in edges_cells:        
             draft_field[y, x] = 1
         
-        t1 = time_ns()
-        inner_polygon_cells_list: List[npt.NDArray] = []
+        max_y = np.max(edges_cells[:, 1])
+        min_y = np.min(edges_cells[:, 1])
+        min_x = np.min(edges_cells[:, 0])
+        max_x = np.max(edges_cells[:, 0])
 
-        for y in range(0, draft_field_height):
+        t1 = time_ns()
+        inner_polygon_cells: List[npt.NDArray] = []
+
+        for y in range(max_y, min_y - 1, -1):
             current = 0
             changes = 0
-            for x in range(0, draft_field_width):
+            for x in range(min_x, max_x + 1):
                 if draft_field[y, x] != current:
                     current = draft_field[y, x]
                     changes += 1
@@ -177,31 +189,25 @@ class Field:
             
             current = 0
             changes = 0
-            for x in range(0, draft_field_width):
+            for x in range(min_x, max_x + 1):
                 if draft_field[y, x] != current:
                     changes += 1
                     current = draft_field[y, x]
                 
                 if (changes / 2) % 2 == 1:
-                    inner_polygon_cells_list.append(np.array([x, y]))
+                    inner_polygon_cells.append(np.array([x, y]))
         
         t2 = time_ns()
-
-        edges_cells[:, 0] += min_x
-        edges_cells[:, 1] += min_y
-
-        inner_polygon_cells = np.vstack(inner_polygon_cells_list)
-
-        inner_polygon_cells[:, 0] += min_x
-        inner_polygon_cells[:, 1] += min_y
 
         string = f'Time to raster {max_x - min_x + 1}x{max_y - min_y + 1}' + f'polygon: {(t2 - t1) / 10 ** 3}'
         print(string)
 
         return np.vstack([
             edges_cells,
-            inner_polygon_cells,
+            np.vstack(inner_polygon_cells),
         ])
+
+        
 
     def _raster_hermite_curve(self, curve: HermiteCurve, n_points: int) -> np.ndarray:
         p1, p2, t1, t2 = curve
@@ -264,25 +270,22 @@ class Field:
         y1 += 1
         y2 += 1
 
-        x1 *= columns / 2
-        x2 *= columns / 2
-        y1 *= rows / 2
-        y2 *= rows / 2
+        x1 *= columns / 2.0
+        x2 *= columns / 2.0
+        y1 *= rows / 2.0
+        y2 *= rows / 2.0
 
         if np.abs(x1 - x2) >= np.abs(y1 - y2):
             m = (y1 - y2) / (x1 - x2)
             n = y1 - m * x1
 
-            x = np.float64(x1 if x1 <= x2 else x2)
-            xf = np.float64(x2 if x1 <= x2 else x1)
+            x = x1 if x1 <= x2 else x2
+            xf = x2 if x1 <= x2 else x1
 
-            x_values = []
-            end = xf
-            while x <= end:
-                x_values.append(x)
-                x += 1
-
-            x_values = np.array(x_values, dtype=np.float64)
+            d = np.round(x - np.floor(x), 2)
+            num = int(np.floor(xf) - np.floor(x) + 1)
+            x_values = np.linspace(np.floor(x), np.floor(xf), num=num, dtype=np.float32)
+            x_values += d
 
             M = np.array([
                 x_values,
@@ -293,16 +296,13 @@ class Field:
             m = (x1 - x2) / (y1 - y2)
             n = x1 - m * y1
 
-            y = np.float64(y1 if y1 <= y2 else y2)
-            yf = np.float64(y2 if y1 <= y2 else y1)
+            y = y1 if y1 <= y2 else y2
+            yf = y2 if y1 <= y2 else y1
             
-            y_values = []
-            end = yf
-            while y <= end:
-                y_values.append(y)
-                y += 1
-
-            y_values = np.array(y_values, dtype=np.float64)
+            d = np.round(y - np.floor(y), 2)
+            num = int(np.floor(yf) - np.floor(y) + 1)
+            y_values = np.linspace(np.floor(y), np.floor(yf), num=num, dtype=np.float32)
+            y_values += d
             
             M = np.array([
                 y_values * m + n,
@@ -310,7 +310,6 @@ class Field:
             ])
 
         return np.transpose(np.floor(M).astype(dtype=np.int32))
-
 
     def render(self) -> Image:
         columns, rows = self._resolution
@@ -420,149 +419,152 @@ def new_hexagon(center: Point, side: float) -> Polygon:
 
 def main():
 
-    resolutions: List[Resolution] = [
-        ( 100, 1000),
-        ( 100,  100),
-        ( 300,  300),
-        ( 500,  500),
-        ( 720,  400),
-        ( 720,  480),
-        ( 800,  600),
-        ( 800,  800),
-        (1000, 1000),
-        (1001, 1001),
-        (1024,  768),
-        (1024, 1024),
-        (1280,  720),
-        (1366,  768),
-    ]
+    # resolutions: List[Resolution] = [
+    #     ( 100, 1000),
+    #     ( 100,  100),
+    #     ( 300,  300),
+    #     ( 500,  500),
+    #     ( 720,  400),
+    #     ( 720,  480),
+    #     ( 800,  600),
+    #     ( 800,  800),
+    #     (1000, 1000),
+    #     (1001, 1001),
+    #     (1024,  768),
+    #     (1024, 1024),
+    #     (1280,  720),
+    #     (1366,  768),
+    # ]
 
-    for resolution in resolutions:
-        field = Field(resolution)
+    # for resolution in resolutions:
+    #     field = Field(resolution)
 
-        point_modifier = PointModifier([
-            (-1.0, +0.0),
-            (+1.0, +0.0)
-        ])
+    #     point_modifier = PointModifier([
+    #         (-1.0, +0.0),
+    #         (+1.0, +0.0)
+    #     ])
 
-        angles = [
-            -np.pi / 12,    -np.pi / 6,         -np.pi / 4,
-            -np.pi / 3,     -np.pi / 12 * 5,    0,
-            +np.pi / 12,    +np.pi / 6,         +np.pi / 4,
-            +np.pi / 3,     +np.pi / 12 * 5,    +np.pi / 2
-        ]
+    #     angles = [
+    #         -np.pi / 12,    -np.pi / 6,         -np.pi / 4,
+    #         -np.pi / 3,     -np.pi / 12 * 5,    0,
+    #         +np.pi / 12,    +np.pi / 6,         +np.pi / 4,
+    #         +np.pi / 3,     +np.pi / 12 * 5,    +np.pi / 2
+    #     ]
 
-        radii = [1.0, 0.75, 0.5, 0.25]
+    #     radii = [1.0, 0.75, 0.5, 0.25]
         
-        for angle in angles:
-            [p1, p2] = point_modifier.rotate(angle).get_points()
-            field.add_line((p1, p2))
+    #     for angle in angles:
+    #         [p1, p2] = point_modifier.rotate(angle).get_points()
+    #         field.add_line((p1, p2))
         
-        for radius in radii:
-            field.add_hermite_curve((
-                (+0.0, +radius),
-                (+radius, +0.0),
-                (+1.675 * radius, +0.0),
-                (+0.0, -1.675 * radius),
-            ), 20)
-            field.add_hermite_curve((
-                (+radius, +0.0),
-                (+0.0, -radius),
-                (+0.0, -1.675 * radius),
-                (-1.675 * radius, +0.0),
-            ), 20)
-            field.add_hermite_curve((
-                (+0.0, -radius),
-                (-radius, +0.0),
-                (-1.675 * radius, +0.0),
-                (+0.0, +1.675 * radius),
-            ), 20)
-            field.add_hermite_curve((
-                (-radius, +0.0),
-                (+0.0, +radius),
-                (+0.0, +1.675 * radius),
-                (+1.675 * radius, +0.0),
-            ), 20)
+    #     for radius in radii:
+    #         field.add_hermite_curve((
+    #             (+0.0, +radius),
+    #             (+radius, +0.0),
+    #             (+1.675 * radius, +0.0),
+    #             (+0.0, -1.675 * radius),
+    #         ), 20)
+    #         field.add_hermite_curve((
+    #             (+radius, +0.0),
+    #             (+0.0, -radius),
+    #             (+0.0, -1.675 * radius),
+    #             (-1.675 * radius, +0.0),
+    #         ), 20)
+    #         field.add_hermite_curve((
+    #             (+0.0, -radius),
+    #             (-radius, +0.0),
+    #             (-1.675 * radius, +0.0),
+    #             (+0.0, +1.675 * radius),
+    #         ), 20)
+    #         field.add_hermite_curve((
+    #             (-radius, +0.0),
+    #             (+0.0, +radius),
+    #             (+0.0, +1.675 * radius),
+    #             (+1.675 * radius, +0.0),
+    #         ), 20)
         
-        random_numbers = np.random.random((16, 2))
-        random_numbers[:, 0] = 0.75 * random_numbers[:, 0] + 0.1
-        random_numbers[:, 1] = 2 * np.pi * random_numbers[:, 1]
+    #     random_numbers = np.random.random((16, 2))
+    #     random_numbers[:, 0] = 0.75 * random_numbers[:, 0] + 0.1
+    #     random_numbers[:, 1] = 2 * np.pi * random_numbers[:, 1]
 
-        aux_column = np.copy(random_numbers[:, 0])
+    #     aux_column = np.copy(random_numbers[:, 0])
 
-        random_numbers[:, 0] = aux_column * np.cos(random_numbers[:, 1])
-        random_numbers[:, 1] = aux_column * np.sin(random_numbers[:, 1])
+    #     random_numbers[:, 0] = aux_column * np.cos(random_numbers[:, 1])
+    #     random_numbers[:, 1] = aux_column * np.sin(random_numbers[:, 1])
 
-        if not path.exists(path.join('.', 'generated_images')):
-            mkdir(path.join('.', 'generated_images'))
+    #     if not path.exists(path.join('.', 'generated_images')):
+    #         mkdir(path.join('.', 'generated_images'))
 
-        file_name = path.join('.', 'generated_images', f'lines-{resolution[0]}x{resolution[1]}.png')
-        field.render().save(file_name)
+    #     file_name = path.join('.', 'generated_images', f'lines-{resolution[0]}x{resolution[1]}.png')
+    #     field.render().save(file_name)
 
 
-    for resolution in resolutions:
-        field = Field(resolution)
+    # for resolution in resolutions:
+    #     field = Field(resolution)
 
-        ## UPPER 3
-        field.add_polygon(new_diamond(
-            center=(-0.666, +0.666),
-            width=0.4,
-            height=0.4,
-        ))
+    #     ## UPPER 3
+    #     field.add_polygon(new_diamond(
+    #         center=(-0.666, +0.666),
+    #         width=0.4,
+    #         height=0.4,
+    #     ))
 
-        field.add_polygon(new_diamond(
-            center=(+0.000, +0.666),
-            width=0.4,
-            height=0.4,
-        ))
+    #     field.add_polygon(new_diamond(
+    #         center=(+0.000, +0.666),
+    #         width=0.4,
+    #         height=0.4,
+    #     ))
         
-        field.add_polygon(new_diamond(
-            center=(+0.666, +0.666),
-            width=0.4,
-            height=0.4,
-        ))
+    #     field.add_polygon(new_diamond(
+    #         center=(+0.666, +0.666),
+    #         width=0.4,
+    #         height=0.4,
+    #     ))
 
-        ## LOWER 3
-        field.add_polygon(new_diamond(
-            center=(-0.666, -0.666),
-            width=0.4,
-            height=0.4,
-        ))
+    #     ## LOWER 3
+    #     field.add_polygon(new_diamond(
+    #         center=(-0.666, -0.666),
+    #         width=0.4,
+    #         height=0.4,
+    #     ))
 
-        field.add_polygon(new_diamond(
-            center=(+0.000, -0.666),
-            width=0.4,
-            height=0.4,
-        ))
+    #     field.add_polygon(new_diamond(
+    #         center=(+0.000, -0.666),
+    #         width=0.4,
+    #         height=0.4,
+    #     ))
 
-        field.add_polygon(new_diamond(
-            center=(+0.666, -0.666),
-            width=0.4,
-            height=0.4,
-        ))
+    #     field.add_polygon(new_diamond(
+    #         center=(+0.666, -0.666),
+    #         width=0.4,
+    #         height=0.4,
+    #     ))
 
-        ## CENTER 2
-        field.add_polygon(new_diamond(
-            center=(-0.333, +0.000),
-            width=0.4,
-            height=0.4,
-        ))
+    #     ## CENTER 2
+    #     field.add_polygon(new_diamond(
+    #         center=(-0.333, +0.000),
+    #         width=0.4,
+    #         height=0.4,
+    #     ))
         
-        field.add_polygon(new_diamond(
-            center=(+0.333, +0.000),
-            width=0.4,
-            height=0.4,
-        ))
+    #     field.add_polygon(new_diamond(
+    #         center=(+0.333, +0.000),
+    #         width=0.4,
+    #         height=0.4,
+    #     ))
 
-        field.add_line(((-1, -0.333), (1, -0.333)))
-        field.add_line(((-1, +0.333), (1, +0.333)))
+    #     field.add_line(((-1, -0.333), (1, -0.333)))
+    #     field.add_line(((-1, +0.333), (1, +0.333)))
 
-        field.add_line(((-0.333, -1), (-0.333, +1)))
-        field.add_line(((+0.333, -1), (+0.333, +1)))
+    #     field.add_line(((-0.333, -1), (-0.333, +1)))
+    #     field.add_line(((+0.333, -1), (+0.333, +1)))
     
-        file_name = path.join('.', 'generated_images', f'quadrilateral-{resolution[0]}x{resolution[1]}.png')
-        field.render().save(file_name)
-
+    #     file_name = path.join('.', 'generated_images', f'quadrilateral-{resolution[0]}x{resolution[1]}.png')
+    #     field.render().save(file_name)
+    
+    field = Field((100, 100))
+    field.add_polygon(new_triangle((-1, 0), (1.6,)))
+    field.render().save('overflowed_triangle.png')
 
 if __name__ == '__main__':
     main()
